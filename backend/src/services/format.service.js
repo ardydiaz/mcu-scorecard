@@ -86,6 +86,16 @@ function updateCachedStyle(sheetName, rowNumber, columnIndex, format) {
   return { before, after };
 }
 
+// Records a merge/unmerge made through the system in the cached merged areas.
+// `area` is 1-based { top, left, bottom, right }.
+function updateCachedMerge(sheetName, area, merged) {
+  const sheet = cached?.sheets[sheetName];
+  if (!sheet) return;
+  const overlaps = (m) => m.top <= area.bottom && m.bottom >= area.top && m.left <= area.right && m.right >= area.left;
+  sheet.merges = (sheet.merges || []).filter((m) => !overlaps(m));
+  if (merged) sheet.merges.push({ ...area });
+}
+
 // Sheet tab color from the cached formatting (null until it has loaded once)
 function getTabColor(sheetName) {
   return cached?.sheets[sheetName]?.tabColor || null;
@@ -96,4 +106,4 @@ function warmUp() {
   refresh().catch((err) => logger.warn(`Format warm-up failed: ${err.message}`));
 }
 
-module.exports = { getSheetFormat, getTabColor, updateCachedStyle, warmUp };
+module.exports = { getSheetFormat, getTabColor, updateCachedStyle, updateCachedMerge, warmUp };

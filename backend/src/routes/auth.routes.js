@@ -6,5 +6,6 @@ const router = Router();
 
 router.post('/microsoft', auth.microsoftLogin);
 router.get('/me', authenticate, auth.me);
+router.post('/logout', authenticate, auth.logout);
 
 module.exports = router;

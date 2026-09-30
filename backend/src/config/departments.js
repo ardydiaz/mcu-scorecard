@@ -1,16 +1,34 @@
-// MCU departments: canonical code, full name, and other spellings used in the
-// scorecard's Lead column or in the M365 "Department" profile field.
-const DEPARTMENTS = [
+// Department registry. The list lives in MySQL (managed on the admin Departments page) and is
+// cached here so matching stays synchronous and fast; department.service reloads it on changes.
+//
+// Each department:
+//   code        canonical code used in the scorecard's Lead column
+//   name        full name (also matched against the M365 "Department" profile field)
+//   aliases     other spellings of the code in the Lead column / M365 ("IT" = ITD)
+//   otherNames  other full names that mean this department in M365
+//   viewAll     members see every row, without the Lead filter (they still only edit rows they lead)
+//   leadCodes   extra Lead codes whose rows members may edit (kept as written, not merged)
+
+// Used once, to fill the departments table the first time; after that MySQL is the source
+const DEFAULT_DEPARTMENTS = [
   { code: 'ITD', name: 'Information Technology', aliases: ['IT'] },
   { code: 'MD', name: 'Marketing', aliases: ['MKTG'] },
-  { code: 'EAO', name: 'External Affairs Office', aliases: [] },
-  { code: 'QA', name: 'Quality Assurance Office', aliases: [] },
-  { code: 'SAS', name: 'Student Affairs and Services', aliases: [] },
-  { code: 'CDD', name: 'Campus Development', aliases: [] },
-  { code: 'FD', name: 'Finance', aliases: [] },
+  { code: 'EAO', name: 'External Affairs Office' },
+  { code: 'QA', name: 'Quality Assurance Office' },
+  { code: 'SAS', name: 'Student Affairs and Services' },
+  { code: 'CDD', name: 'Campus Development' },
+  { code: 'FD', name: 'Finance' },
   { code: 'HR', name: 'Human Resources', aliases: ['HRD'] },
-  { code: 'AFAD', name: 'Admissions and Financial Aid', aliases: [] },
-  { code: 'ACAD', name: 'Academics', aliases: [] },
+  { code: 'AFAD', name: 'Admissions and Financial Aid' },
+  { code: 'ACAD', name: 'Academics' },
+  {
+    code: 'EXECOM',
+    name: 'Executive Committee',
+    description: 'Executive Vice President, University President, Chairman of the Board of Trustees',
+    otherNames: ['Execom', 'Office of the President', 'Executive Vice President', 'Board of Trustees'],
+    viewAll: true,
+    leadCodes: ['EVP', 'BOT', 'OP'],
+  },
 ];
 
 // "Information Technology Department" / "INFORMATION TECHNOLOGY" / "Admissions & Financial Aid" -> comparable key
@@ -24,11 +42,39 @@ function normalizeName(value) {
     .trim();
 }
 
-const byCode = new Map();
-const byName = new Map();
-for (const dept of DEPARTMENTS) {
-  for (const code of [dept.code, ...dept.aliases]) byCode.set(code, dept);
-  byName.set(normalizeName(dept.name), dept);
+const toCodes = (list) => (Array.isArray(list) ? list : []).map((c) => String(c).trim().toUpperCase()).filter(Boolean);
+const toNames = (list) => (Array.isArray(list) ? list : []).map((n) => String(n).trim()).filter(Boolean);
+
+let departments = [];
+let byCode = new Map();
+let byName = new Map();
+
+// Replaces the cached list (called with the rows from MySQL)
+function setDepartments(rows) {
+  departments = rows
+    .filter((d) => d.code)
+    .map((d) => ({
+      id: d.id,
+      code: String(d.code).toUpperCase(),
+      name: d.name,
+      description: d.description || '',
+      aliases: toCodes(d.aliases),
+      otherNames: toNames(d.otherNames),
+      viewAll: !!d.viewAll,
+      leadCodes: toCodes(d.leadCodes),
+    }));
+  byCode = new Map();
+  byName = new Map();
+  for (const dept of departments) {
+    for (const code of [dept.code, ...dept.aliases]) byCode.set(code, dept);
+    for (const name of [dept.name, ...dept.otherNames]) byName.set(normalizeName(name), dept);
+  }
+}
+
+setDepartments(DEFAULT_DEPARTMENTS);
+
+function getDepartments() {
+  return departments;
 }
 
 // "IT" -> "ITD", "MKTG" -> "MD"; unknown codes (EVP, BOT...) are returned unchanged
@@ -52,4 +98,32 @@ function departmentValue(m365Department) {
   return findDepartment(raw)?.code || raw;
 }
 
-module.exports = { DEPARTMENTS, canonicalCode, findDepartment, departmentValue };
+// What a user's departments allow: seeing every row, and which Lead codes they may edit
+function departmentAccess(codes) {
+  const found = codes.map((c) => byCode.get(canonicalCode(c))).filter(Boolean);
+  return {
+    viewAll: found.some((d) => d.viewAll),
+    editCodes: [...new Set([...codes.map(canonicalCode), ...found.flatMap((d) => d.leadCodes)])],
+  };
+}
+
+// Options for a "filter by Lead" dropdown: the known departments among `leadCodes` (with names)
+// first, then any other codes found in the Lead column
+function departmentOptions(leadCodes) {
+  const codes = new Set(leadCodes);
+  const known = departments.filter((d) => codes.has(d.code)).map(({ code, name }) => ({ code, name }));
+  const others = [...codes].filter((c) => !departments.some((d) => d.code === c)).sort().map((code) => ({ code, name: '' }));
+  return [...known, ...others];
+}
+
+module.exports = {
+  DEFAULT_DEPARTMENTS,
+  departmentOptions,
+  normalizeName,
+  setDepartments,
+  getDepartments,
+  canonicalCode,
+  findDepartment,
+  departmentValue,
+  departmentAccess,
+};

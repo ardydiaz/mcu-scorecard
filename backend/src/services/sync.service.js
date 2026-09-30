@@ -5,13 +5,13 @@ const { linkUserToM365Department } = require('./department.service');
 const { departmentValue } = require('../config/departments');
 const logger = require('../utils/logger');
 
-// Pulls all Entra ID users into the local DB and links them to departments based on
-// the "department" field in their Microsoft 365 profile (mapped via config/departments.js).
+// Pulls all Entra ID users into the local DB and links them to departments based on the
+// "department" field in their Microsoft 365 profile (matched against the Departments page).
 async function syncUsersFromAzure() {
   const azureUsers = await listAllUsers();
   let synced = 0;
   let linked = 0;
-  const unmatched = new Set(); // M365 department values not in config/departments.js
+  const unmatched = new Set(); // M365 department values that match no department
 
   await sequelize.transaction(async (transaction) => {
     for (const au of azureUsers) {

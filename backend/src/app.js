@@ -9,6 +9,8 @@ const { notFound, errorHandler } = require('./middleware/error.middleware');
 const authRoutes = require('./routes/auth.routes');
 const userRoutes = require('./routes/user.routes');
 const strategyRoutes = require('./routes/strategy.routes');
+const departmentRoutes = require('./routes/department.routes');
+const auditRoutes = require('./routes/audit.routes');
 
 const app = express();
 
@@ -22,6 +24,8 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/strategy', strategyRoutes);
+app.use('/api/departments', departmentRoutes);
+app.use('/api/audit-logs', auditRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

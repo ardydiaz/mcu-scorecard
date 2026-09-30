@@ -1,10 +1,12 @@
 const userService = require('../services/user.service');
 const syncService = require('../services/sync.service');
+const { audit } = require('../services/audit.service');
 
 async function list(req, res) {
   const page = parseInt(req.query.page, 10) || 1;
   const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
-  res.json(await userService.listUsers({ page, limit }));
+  const { q, role, status } = req.query;
+  res.json(await userService.listUsers({ page, limit, q, role, status }));
 }
 
 async function getById(req, res) {
@@ -16,7 +18,16 @@ async function getById(req, res) {
 }
 
 async function update(req, res) {
-  res.json(await userService.updateUser(req.params.id, req.body));
+  const before = await userService.getUserById(req.params.id);
+  const updated = await userService.updateUser(req.params.id, req.body, req.user);
+
+  if (updated.role !== before.role) {
+    await audit(req, 'user.role_change', { target: updated.email, details: { from: before.role, to: updated.role } });
+  }
+  if (updated.isActive !== before.isActive) {
+    await audit(req, updated.isActive ? 'user.reactivate' : 'user.deactivate', { target: updated.email });
+  }
+  res.json(updated);
 }
 
 async function setDepartments(req, res) {
@@ -24,7 +35,9 @@ async function setDepartments(req, res) {
 }
 
 async function syncFromAzure(req, res) {
-  res.json(await syncService.syncUsersFromAzure());
+  const result = await syncService.syncUsersFromAzure();
+  await audit(req, 'user.sync', { details: result });
+  res.json(result);
 }
 
 module.exports = { list, getById, update, setDepartments, syncFromAzure };

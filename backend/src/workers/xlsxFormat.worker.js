@@ -75,6 +75,15 @@ function resolveColor(color, theme) {
 
 // ---- Sheets --------------------------------------------------------------------------------
 
+const letterIndex = (letters) => letters.split('').reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
+
+// "K130:M131" -> { top: 130, left: 11, bottom: 131, right: 13 }
+function parseArea(area) {
+  const m = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(String(area));
+  if (!m) return null;
+  return { top: Number(m[2]), left: letterIndex(m[1]), bottom: Number(m[4]), right: letterIndex(m[3]) };
+}
+
 function describeSheet(ws, theme) {
   const styles = [];
   const styleIndex = new Map();
@@ -119,8 +128,12 @@ function describeSheet(ws, theme) {
     cells[r] = rowStyles;
   }
 
+  // Merged areas as 1-based { top, left, bottom, right } (ExcelJS gives "K130:M130" strings)
+  const merges = (ws.model.merges || []).map(parseArea).filter(Boolean);
+
   const view = (ws.views || [])[0] || {};
   return {
+    merges,
     name: ws.name,
     tabColor: resolveColor(ws.properties?.tabColor, theme),
     zoom: view.zoomScale || 100,

@@ -5,12 +5,14 @@ const { sequelize, connectDatabase } = require('./config/database');
 const { seedDepartments } = require('./services/department.service');
 const { addMissingColumns } = require('./config/migrations');
 const { warmUp: warmUpFormats } = require('./services/format.service');
+const { importEditLogs } = require('./services/audit.service');
 
 // Register models and associations before syncing
 require('./models/User');
 require('./models/Department');
 require('./models/UserDepartment');
-require('./models/EditLog');
+require('./models/EditLog'); // older cell-edit history, copied into audit_logs once
+require('./models/AuditLog');
 
 async function start() {
   try {
@@ -18,7 +20,9 @@ async function start() {
     // Creates missing tables; switch to migrations before production
     await sequelize.sync();
     await addMissingColumns();
+    // Fills departments the first time, then loads them into memory for matching
     await seedDepartments();
+    await importEditLogs();
 
     app.listen(env.port, () => {
       logger.info(`MCU Scorecard API running on http://localhost:${env.port}`);

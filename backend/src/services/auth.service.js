@@ -57,10 +57,15 @@ async function loginWithMicrosoft(idToken) {
   });
 
   if (!user.isActive) {
-    throw Object.assign(new Error('Your account is disabled. Please contact the ICT office.'), { status: 403 });
+    // `actor` lets the controller record who was refused in the audit log
+    throw Object.assign(new Error('Your account is disabled. Please contact the ICT office.'), {
+      status: 403,
+      actor: { id: user.id, email: user.email },
+    });
   }
 
-  await linkUserToM365Department(user, profile.department);
+  // Only when Graph was read: an unreachable Graph must not change the user's department
+  if (profile.id) await linkUserToM365Department(user, profile.department);
   const departments = await user.getDepartments();
   const primary = departments.find((d) => d.UserDepartment?.isHead) || departments[0];
 

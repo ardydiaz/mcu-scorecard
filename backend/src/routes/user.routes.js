@@ -1,5 +1,5 @@
 const { Router } = require('express');
-const { param, body } = require('express-validator');
+const { param, body, query } = require('express-validator');
 const users = require('../controllers/user.controller');
 const { authenticate, authorize } = require('../middleware/auth.middleware');
 const { validate } = require('../middleware/validation.middleware');
@@ -9,7 +9,14 @@ const idParam = param('id').isInt({ min: 1 });
 
 router.use(authenticate);
 
-router.get('/', authorize('admin', 'manager'), users.list);
+router.get('/',
+  authorize('admin', 'manager'),
+  query('q').optional().isString().trim().isLength({ max: 100 }),
+  query('role').optional().isIn(['admin', 'manager', 'user']),
+  query('status').optional().isIn(['active', 'inactive']),
+  validate,
+  users.list
+);
 router.post('/sync', authorize('admin'), users.syncFromAzure);
 router.get('/:id', idParam, validate, users.getById);
 
@@ -17,7 +24,7 @@ router.patch('/:id',
   authorize('admin'),
   idParam,
   body('role').optional().isIn(['admin', 'manager', 'user']),
-  body('isActive').optional().isBoolean(),
+  body('isActive').optional().isBoolean({ strict: true }),
   validate,
   users.update
 );

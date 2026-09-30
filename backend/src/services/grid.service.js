@@ -1,4 +1,4 @@
-const { getUsedRange, writeCell, writeCellFormat } = require('./excel.service');
+const { getUsedRange, writeCell, writeCellFormat, mergeRange } = require('./excel.service');
 const {
   listVisibleSheets,
   findHeaderRow,
@@ -9,9 +9,9 @@ const {
   oneLine,
   invalidateScorecard,
 } = require('./scorecard.service');
-const { DEPARTMENTS, canonicalCode } = require('../config/departments');
-const EditLog = require('../models/EditLog');
-const { getSheetFormat, updateCachedStyle } = require('./format.service');
+const { departmentOptions } = require('../config/departments');
+const { accessFor, canEditRow } = require('./access.service');
+const { getSheetFormat, updateCachedStyle, updateCachedMerge } = require('./format.service');
 const logger = require('../utils/logger');
 
 const MAX_CELL_LENGTH = 5000;
@@ -68,6 +68,16 @@ function rowCells(layout, range, r) {
   return layout.headers.map((_, i) => cell(i));
 }
 
+// Merged areas starting on an Excel row, as grid columns: [{ col, span, rows }] where `rows` is
+// how many sheet rows it covers (1 = merged across only)
+function rowMerges(format, layout, rowNumber, columnCount) {
+  return (format?.merges || [])
+    .filter((m) => m.top === rowNumber)
+    .map((m) => ({ col: m.left - 1 - layout.firstCol, span: m.right - m.left + 1, rows: m.bottom - m.top + 1 }))
+    .filter((m) => m.col >= 0 && m.col < columnCount)
+    .map((m) => ({ ...m, span: Math.min(m.span, columnCount - m.col) }));
+}
+
 // Column indexes in row r whose cell holds a formula (these are read-only)
 function formulaColumns(layout, range, r) {
   const row = range.formulas?.[r] || [];
@@ -81,13 +91,6 @@ function rowIdentity(layout, cells) {
     lead: cells[columns.lead] || '',
     name: (columns.project !== undefined && cells[columns.project]) || (columns.kpi !== undefined && cells[columns.kpi]) || '',
   };
-}
-
-function userAccess(user, department) {
-  const canViewAll = user.role === 'admin';
-  const userCodes = (user.departments || []).map((d) => canonicalCode(d.code || d.name));
-  const viewing = canViewAll ? (department ? [canonicalCode(department)] : null) : userCodes;
-  return { canViewAll, userCodes, viewing };
 }
 
 async function requireSheet(sheet) {
@@ -110,7 +113,8 @@ async function getGridForUser(user, { sheet, department, refresh = false } = {})
   if (!layout) return { sheet, supported: false };
 
   const { columns, headers, headerRow, firstRow, hierarchy, kpiColumns } = layout;
-  const { canViewAll, viewing } = userAccess(user, department);
+  const access = accessFor(user, department);
+  const { canViewAll, viewing } = access;
   const wanted = viewing && new Set(viewing);
 
   const carried = {};
@@ -146,13 +150,18 @@ async function getGridForUser(user, { sheet, department, refresh = false } = {})
         inherited.push(col);
       }
     }
-    rows.push({ row: firstRow + r, cells, inherited, formulas: formulaColumns(layout, range, r), identity });
+    rows.push({
+      row: firstRow + r,
+      cells,
+      inherited,
+      formulas: formulaColumns(layout, range, r),
+      identity,
+      // View-all departments (EXECOM) see rows they don't lead; those are read-only for them
+      editable: canEditRow(access, lead),
+    });
   }
 
-  const departments = [
-    ...DEPARTMENTS.filter((d) => leadCodes.has(d.code)).map(({ code, name }) => ({ code, name })),
-    ...[...leadCodes].filter((c) => !DEPARTMENTS.some((d) => d.code === c)).sort().map((code) => ({ code, name: '' })),
-  ];
+  const departments = departmentOptions(leadCodes);
 
   // Excel look: widths/heights/colors from the .xlsx (null when formatting couldn't be loaded)
   const absoluteCol = (i) => layout.firstCol + i;
@@ -175,6 +184,7 @@ async function getGridForUser(user, { sheet, department, refresh = false } = {})
     for (const row of rows) {
       row.height = format.rowHeights[row.row] || null;
       row.styles = headers.map((_, i) => format.cells[row.row]?.[absoluteCol(i)] ?? null);
+      row.merges = rowMerges(format, layout, row.row, headers.length);
     }
   }
 
@@ -187,7 +197,7 @@ async function getGridForUser(user, { sheet, department, refresh = false } = {})
     totalRows,
     leadColumn: headers[columns.lead].letter,
     dateColumns: layout.dateColumns,
-    // Rows shown to a department user are all rows they lead, so every shown row is editable
+    // Editing is allowed on this grid; each row's own `editable` says whether this user may change it
     editable: true,
     canViewAll,
     viewingDepartments: viewing || [],
@@ -212,9 +222,8 @@ async function loadCellForChange(user, { sheet, row, column, identity }) {
   if (col < 0 || col >= layout.headers.length) throw httpError(400, `Column ${column} can't be edited.`);
 
   const cells = rowCells(layout, range, r);
-  const { canViewAll, userCodes } = userAccess(user);
   const lead = parseCodes(cells[layout.columns.lead]);
-  if (!canViewAll && !lead.some((c) => userCodes.includes(c))) {
+  if (!canEditRow(accessFor(user), lead)) {
     throw httpError(403, 'You can only edit rows that your department leads.');
   }
 
@@ -255,20 +264,18 @@ async function updateCellForUser(user, { sheet, row, column, value, previous = '
   const address = `${column}${row}`;
   const text = await writeCell(sheet, address, toWrite, { numberFormat });
   invalidateScorecard(sheet);
-
-  await EditLog.create({
-    userId: user.id,
-    userEmail: user.email,
-    sheet,
-    cell: address,
-    column: layout.headers[col].label,
-    oldValue: cells[col],
-    newValue: text,
-  });
   logger.info(`${user.email} edited ${sheet}!${address}: "${cells[col]}" -> "${text}"`);
 
+  const oldValue = cells[col];
   cells[col] = text;
-  return { row, column, text, identity: rowIdentity(layout, cells) };
+  return {
+    row,
+    column,
+    text,
+    identity: rowIdentity(layout, cells),
+    // For the audit log (recorded by the controller)
+    change: { target: `${sheet}!${address}`, details: { column: layout.headers[col].label, oldValue, newValue: text } },
+  };
 }
 
 /**
@@ -280,20 +287,128 @@ async function formatCellForUser(user, { sheet, row, column, identity, format })
   const address = `${column}${row}`;
 
   await writeCellFormat(sheet, address, format);
-  const { before, after } = updateCachedStyle(sheet, row, layout.firstCol + col, format);
-
-  await EditLog.create({
-    userId: user.id,
-    userEmail: user.email,
-    sheet,
-    cell: address,
-    column: `${layout.headers[col].label} (format)`,
-    oldValue: before ? JSON.stringify(before) : null,
-    newValue: JSON.stringify(format),
-  });
+  const { after } = updateCachedStyle(sheet, row, layout.firstCol + col, format);
   logger.info(`${user.email} formatted ${sheet}!${address}: ${JSON.stringify(format)}`);
 
-  return { row, column, style: after };
+  return {
+    row,
+    column,
+    style: after,
+    // For the audit log (recorded by the controller)
+    change: { target: `${sheet}!${address}`, details: { column: layout.headers[col].label, format } },
+  };
 }
 
-module.exports = { getGridForUser, updateCellForUser, formatCellForUser };
+/**
+ * Merges a range like Excel (e.g. R130:T130 across, or A129:A131 down), or unmerges a merged cell.
+ * Rules on top of the usual edit checks for the top-left cell:
+ *  - every row in the range must be one the user may edit (led by their department; admins any),
+ *    and each row must still be the row the user loaded (`identities`, one per row, top to bottom).
+ *    That also means a department can't swallow other departments' rows hidden by its filter.
+ *  - Lead, Projects and KPI can't be merged down (each row needs its own), and across one row they
+ *    may only be the leftmost cell, so their value is always the one kept
+ *  - no formula cells, and no partial overlap with an existing merged area
+ *  - values in the cells being merged away are only discarded after the user confirms
+ *    (`confirm`); otherwise a 409 with code CONFIRM_MERGE lists them
+ */
+async function mergeCellsForUser(user, {
+  sheet, row, endRow = row, startColumn, endColumn, identities = [], merge = true, center = false, confirm = false,
+}) {
+  const { range, layout, r, col: startCol } = await loadCellForChange(user, { sheet, row, column: startColumn, identity: identities[0] });
+  const endCol = letterToIndex(endColumn) - layout.firstCol;
+  const endR = endRow - layout.firstRow;
+  if (endCol < startCol || endCol >= layout.headers.length || endRow < row || endR >= range.values.length) {
+    throw httpError(400, 'That range is outside the sheet.');
+  }
+
+  const absStart = layout.firstCol + startCol + 1; // 1-based, like Excel
+  const absEnd = layout.firstCol + endCol + 1;
+  const format = await getSheetFormat(sheet);
+  const overlapping = (format?.merges || []).filter((m) => m.top <= endRow && m.bottom >= row && m.left <= absEnd && m.right >= absStart);
+
+  // Every row in the range: editable by this user, and still the row they loaded
+  const access = accessFor(user);
+  const rowsInRange = [];
+  for (let rr = r; rr <= endR; rr++) {
+    const cells = rowCells(layout, range, rr);
+    const rowNumber = layout.firstRow + rr;
+    if (!canEditRow(access, parseCodes(cells[layout.columns.lead]))) {
+      throw httpError(403, `Row ${rowNumber} is led by another department, so it can't be part of your merge.`);
+    }
+    const expected = identities[rr - r];
+    const now = rowIdentity(layout, cells);
+    if (expected && (expected.lead !== now.lead || expected.name !== now.name)) {
+      throw httpError(409, `Row ${rowNumber} changed in Excel since you loaded it (rows may have been added or moved). Refresh and try again.`);
+    }
+    rowsInRange.push({ rr, rowNumber, cells });
+  }
+
+  if (!merge) {
+    const area = overlapping.find((m) => m.top === row && m.left === absStart);
+    if (!area) throw httpError(400, `${startColumn}${row} is not merged.`);
+    const areaAddress = `${startColumn}${area.top}:${columnLetter(area.right - 1)}${area.bottom}`;
+    await mergeRange(sheet, areaAddress, { merge: false });
+    updateCachedMerge(sheet, area, false);
+    invalidateScorecard(sheet);
+    return {
+      row, endRow: area.bottom, startColumn, endColumn: columnLetter(area.right - 1), merged: false,
+      change: { target: `${sheet}!${areaAddress}` },
+    };
+  }
+
+  if (endCol === startCol && endRow === row) throw httpError(400, 'Select two or more cells to merge.');
+  const address = `${startColumn}${row}:${endColumn}${endRow}`;
+  if (overlapping.some((m) => m.top < row || m.bottom > endRow || m.left < absStart || m.right > absEnd)) {
+    throw httpError(400, 'Part of this range is already merged with cells outside it. Unmerge that first.');
+  }
+
+  const { columns } = layout;
+  const protectedCols = [columns.lead, columns.project, columns.kpi].filter((c) => c !== undefined && c >= startCol && c <= endCol);
+  if (endRow > row && protectedCols.length) {
+    throw httpError(400, `${layout.headers[protectedCols[0]].label} can't be merged down: every row needs its own ${layout.headers[protectedCols[0]].label} value.`);
+  }
+  const coveredProtected = protectedCols.find((c) => c > startCol);
+  if (coveredProtected !== undefined) {
+    throw httpError(400, `The ${layout.headers[coveredProtected].label} cell can only be the first (leftmost) cell of a merge, so its value is kept.`);
+  }
+
+  const lost = [];
+  for (const { rr, rowNumber, cells } of rowsInRange) {
+    const formula = formulaColumns(layout, range, rr).find((c) => c >= startCol && c <= endCol);
+    if (formula !== undefined) throw httpError(400, `${layout.headers[formula].letter}${rowNumber} has a formula and can't be merged.`);
+    for (let c = startCol; c <= endCol; c++) {
+      if (rr === r && c === startCol) continue; // the top-left cell is kept
+      if (cells[c]) lost.push({ cell: `${layout.headers[c].letter}${rowNumber}`, column: layout.headers[c].label, value: cells[c] });
+    }
+  }
+  if (lost.length && !confirm) {
+    throw Object.assign(httpError(409, `Merging keeps only ${startColumn}${row}. ${lost.length} other cell(s) have values that would be deleted.`), {
+      data: { code: 'CONFIRM_MERGE', lost },
+    });
+  }
+
+  // Empty everything except the top-left cell (the rest of its row, then the rows below)
+  const width = endCol - startCol + 1;
+  const clear = [];
+  if (lost.length) {
+    if (endCol > startCol) clear.push({ address: `${layout.headers[startCol + 1].letter}${row}:${endColumn}${row}`, rows: 1, cols: width - 1 });
+    if (endRow > row) clear.push({ address: `${startColumn}${row + 1}:${endColumn}${endRow}`, rows: endRow - row, cols: width });
+  }
+  await mergeRange(sheet, address, { merge: true, center, clear });
+  updateCachedMerge(sheet, { top: row, bottom: endRow, left: absStart, right: absEnd }, true);
+  const style = center ? updateCachedStyle(sheet, row, layout.firstCol + startCol, { hAlign: 'center' }).after : null;
+  invalidateScorecard(sheet);
+  logger.info(`${user.email} merged ${sheet}!${address}${lost.length ? ` (cleared ${lost.map((l) => l.cell).join(', ')})` : ''}`);
+
+  return {
+    row,
+    endRow,
+    startColumn,
+    endColumn,
+    merged: true,
+    style,
+    change: { target: `${sheet}!${address}`, details: { center, ...(lost.length && { deletedValues: lost }) } },
+  };
+}
+
+module.exports = { getGridForUser, updateCellForUser, formatCellForUser, mergeCellsForUser };

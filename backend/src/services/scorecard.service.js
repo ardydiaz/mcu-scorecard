@@ -1,5 +1,6 @@
 const { listWorksheets, getUsedRange } = require('./excel.service');
-const { DEPARTMENTS, canonicalCode } = require('../config/departments');
+const { departmentOptions, canonicalCode } = require('../config/departments');
+const { accessFor } = require('./access.service');
 
 // Header names used across the scorecard sheets (matched case-insensitively)
 const COLUMN_PATTERNS = {
@@ -228,6 +229,11 @@ function invalidateScorecard(sheetName) {
   cache.delete(sheetName);
 }
 
+// Drops every parsed sheet, e.g. after department aliases changed (Lead codes are resolved when parsing)
+function invalidateAllScorecards() {
+  cache.clear();
+}
+
 // Departments for the admin dropdown: every Lead code in the sheet, known departments first
 function collectDepartments(scorecard) {
   const codes = new Set();
@@ -235,9 +241,7 @@ function collectDepartments(scorecard) {
   for (const p of scorecard.perspectives) for (const o of p.objectives) for (const k of o.kras) {
     for (const kpi of k.kpis) { add(kpi); kpi.projects.forEach(add); }
   }
-  const known = DEPARTMENTS.filter((d) => codes.has(d.code)).map(({ code, name }) => ({ code, name }));
-  const others = [...codes].filter((c) => !DEPARTMENTS.some((d) => d.code === c)).sort().map((code) => ({ code, name: '' }));
-  return [...known, ...others];
+  return departmentOptions(codes);
 }
 
 // Strict Lead filter, like Excel's "Lead contains <code>": only KPIs and projects whose own Lead
@@ -297,19 +301,14 @@ async function resolveSheet(sheetName) {
 }
 
 /**
- * Scorecard as seen by `user`: admins see everything (optionally narrowed to one
- * department); everyone else sees only rows for their own departments.
+ * Scorecard as seen by `user`: admins and view-all departments (EXECOM) see everything
+ * (optionally narrowed to one department); everyone else sees only rows they lead.
  */
 async function getScorecardForUser(user, { sheet, department, refresh } = {}) {
   const sheetName = await resolveSheet(sheet);
   const full = await loadScorecard(sheetName, { refresh });
   const departments = collectDepartments(full);
-  const canViewAll = user.role === 'admin';
-  const userCodes = (user.departments || []).map((d) => canonicalCode(d.code || d.name));
-
-  let viewing;
-  if (canViewAll) viewing = department ? [canonicalCode(department)] : null;
-  else viewing = userCodes;
+  const { canViewAll, viewing } = accessFor(user, department);
 
   const visible = viewing ? filterByDepartments(full, viewing) : full;
   return {
@@ -369,6 +368,7 @@ module.exports = {
   parseScorecard,
   collectDepartments,
   invalidateScorecard,
+  invalidateAllScorecards,
   // Sheet-reading helpers shared with grid.service
   findHeaderRow,
   mapColumns,

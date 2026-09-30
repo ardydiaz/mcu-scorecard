@@ -14,6 +14,8 @@ function errorHandler(err, req, res, next) {
     : status === 500 ? 'Internal server error' : err.message;
   res.status(status).json({
     message,
+    // Extra fields a client needs to act on the error, e.g. { code: 'CONFIRM_MERGE', lost: [...] }
+    ...(status < 500 && err.data),
     ...(env.nodeEnv === 'development' && { stack: err.stack }),
   });
 }

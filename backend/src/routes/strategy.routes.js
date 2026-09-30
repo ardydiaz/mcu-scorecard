@@ -61,6 +61,21 @@ router.patch('/grid/format',
   validate,
   strategy.formatGridCell
 );
+router.post('/grid/merge',
+  body('sheet').isString().trim().isLength({ min: 1, max: 100 }),
+  body('row').isInt({ min: 2 }).toInt(),
+  body('endRow').optional().isInt({ min: 2 }).toInt(),
+  body('endRow').optional().custom((end, { req }) => {
+    if (end < req.body.row || end - req.body.row > 200) throw new Error('endRow must be from row to row + 200');
+    return true;
+  }),
+  body(['startColumn', 'endColumn']).isString().matches(/^[A-Z]{1,3}$/),
+  body('identities').optional().isArray({ max: 201 }),
+  body(['identities.*.lead', 'identities.*.name']).optional().isString(),
+  body(['merge', 'center', 'confirm']).optional().isBoolean({ strict: true }),
+  validate,
+  strategy.mergeGridCells
+);
 router.get('/map', sheetQuery, validate, strategy.getMap);
 
 module.exports = router;

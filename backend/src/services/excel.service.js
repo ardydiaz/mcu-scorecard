@@ -131,4 +131,33 @@ async function writeCellFormat(sheetName, address, format) {
   }
 }
 
-module.exports = { listWorksheets, getUsedRange, getWorkbookInfo, writeCell, writeCellFormat };
+/**
+ * Merges or unmerges a range such as "R130:T130" or "A129:A131". Before merging, `clear`
+ * ([{ address, rows, cols }]) empties the cells merging would discard, so what Excel keeps is
+ * decided here and the kept (top-left) cell is never rewritten. `center` = "Merge & Center".
+ */
+async function mergeRange(sheetName, address, { merge, clear = [], center = false }) {
+  const client = await getAppGraphClient();
+  const sheetPath = `${workbookPath()}/worksheets('${encodeURIComponent(sheetName)}')`;
+  const range = `${sheetPath}/range(address='${address}')`;
+  try {
+    if (merge) {
+      for (const part of clear || []) {
+        const blank = Array.from({ length: part.rows }, () => Array(part.cols).fill(''));
+        await client.api(`${sheetPath}/range(address='${part.address}')`).patch({ values: blank });
+      }
+      await client.api(`${range}/merge`).post({ across: false });
+      if (center) await client.api(`${range}/format`).patch({ horizontalAlignment: 'Center' });
+    } else {
+      await client.api(`${range}/unmerge`).post({});
+    }
+    rangeCache.delete(sheetName);
+  } catch (err) {
+    if (err.statusCode === 403) {
+      throw Object.assign(new Error('The app is not allowed to edit the workbook. Its SharePoint site permission must be "write", not "read".'), { status: 503 });
+    }
+    throw explainGraphError(err);
+  }
+}
+
+module.exports = { listWorksheets, getUsedRange, getWorkbookInfo, writeCell, writeCellFormat, mergeRange };
