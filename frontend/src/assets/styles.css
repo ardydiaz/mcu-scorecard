@@ -653,41 +653,6 @@ a.btn { text-decoration: none; }
 .project__meta { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); }
 .project__meta:empty { display: none; }
 
-/* Strategy map */
-.map { display: flex; flex-direction: column; gap: 14px; }
-.map__lane {
-  display: grid;
-  grid-template-columns: 170px 1fr;
-  gap: 14px;
-  padding: 14px;
-  background: var(--surface-2);
-  border-radius: var(--radius);
-}
-.map__lane-title { font-size: 15px; color: var(--primary); align-self: center; }
-.map__items { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
-.map__item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 14px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-top: 3px solid var(--primary);
-  border-radius: 8px;
-  color: var(--text);
-  text-decoration: none;
-}
-.map__item:hover { border-color: var(--primary); }
-.map__item-name { font-weight: 700; font-size: 15px; }
-.map__item-counts { font-size: 12px; color: var(--muted); }
-.map__kras { margin: 4px 0 0; padding-left: 16px; font-size: 13px; display: flex; flex-direction: column; gap: 2px; }
-
-.map-targets { margin: 0; }
-.map-targets__row { display: grid; grid-template-columns: 220px 1fr; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
-.map-targets__row:first-child { border-top: 0; }
-.map-targets__row dt { font-weight: 600; }
-.map-targets__row dd { margin: 0; display: flex; flex-direction: column; gap: 2px; }
-
 /* Profile */
 .profile { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
 .profile__name { font-size: 20px; }
@@ -711,8 +676,6 @@ a.btn { text-decoration: none; }
   .header__menu { display: block; }
   .header__name { display: none; }
   .layout__content { padding: 16px; }
-  .map__lane { grid-template-columns: 1fr; }
-  .map-targets__row { grid-template-columns: 1fr; gap: 2px; }
   .kpi__header, .project__header { flex-direction: column; gap: 6px; }
   .kra { padding: 0 12px 14px; }
   .objective__summary { padding: 12px; }

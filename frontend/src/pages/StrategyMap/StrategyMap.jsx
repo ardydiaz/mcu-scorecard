@@ -1,68 +1,138 @@
-import { Link, useSearchParams } from 'react-router-dom';
+import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAllSheets, useScorecardSheets, useSheetGrid, useStrategyMap, useWorkbook } from '../../hooks/useStrategy';
 import SheetGrid from '../../components/tables/SheetGrid';
-import { excelUrl } from '../../utils/excelLinks';
 import { updateGridCell } from '../../api/strategyApi';
 import { getErrorMessage } from '../../api/axios';
-import Card from '../../components/common/Card';
 import Loader from '../../components/common/Loader';
 import ErrorMessage from '../../components/common/ErrorMessage';
-import ExcelEmbed, { EXCEL_WINDOW } from '../../components/common/ExcelEmbed';
+import ExcelEmbed from '../../components/common/ExcelEmbed';
 import SheetSelect from '../../components/forms/SheetSelect';
-import { plural } from '../../utils/format';
 
-const MAX_KRAS_SHOWN = 6;
+const SUMMARY_TAB = 'Strategy Summary';
+const TARGETS_TAB = 'Institutional Targets';
+const LINE_HEIGHT_PT = 15.75;
 
+// Same look as the scorecard sheet: blue headers, light-green cells, Calibri 12
+const SUMMARY_STYLES = [
+  { bg: '#9DC3E6', color: '#000000', bold: true, size: 12, font: 'Calibri', h: 'center', v: 'middle', wrap: true }, // 0 header
+  { bg: '#E2EFDA', color: '#000000', size: 12, font: 'Calibri', h: 'left', v: 'top', wrap: true }, // 1 text
+  { bg: '#E2EFDA', color: '#000000', size: 12, font: 'Calibri', h: 'center', v: 'top', wrap: true }, // 2 number
+  { bg: '#E2EFDA', color: '#000000', bold: true, size: 12, font: 'Calibri', h: 'left', v: 'top', wrap: true }, // 3 bold text
+  { bg: '#C6E0B4', color: '#000000', bold: true, size: 12, font: 'Calibri', h: 'left', v: 'top', wrap: true }, // 4 total label
+  { bg: '#C6E0B4', color: '#000000', bold: true, size: 12, font: 'Calibri', h: 'center', v: 'top', wrap: true }, // 5 total number
+];
+
+// Rough number of wrapped lines a cell needs, so rows are tall enough (like Excel's auto-fit)
+function lineCount(text, widthChars) {
+  return String(text || '').split('\n').reduce((n, line) => n + Math.max(1, Math.ceil(line.length / (widthChars - 2))), 0);
+}
+
+/**
+ * Builds a read-only sheet for SheetGrid from plain rows: `columns` is [{ label, width, number }],
+ * each row is { cells, bold, total, inherited }.
+ */
+function buildSheet(name, columns, rows) {
+  const letters = columns.map((_, i) => String.fromCharCode(65 + i));
+  return {
+    sheet: name,
+    supported: true,
+    editable: false,
+    leadColumn: '',
+    dateColumns: [],
+    viewingDepartments: [],
+    totalRows: rows.length,
+    headers: columns.map((c, i) => ({ letter: letters[i], label: c.label })),
+    format: {
+      zoom: 90,
+      frozenRows: 1,
+      showGridLines: true,
+      defaultRowHeight: LINE_HEIGHT_PT,
+      defaultColWidth: 8.43,
+      headerHeight: 30,
+      styles: SUMMARY_STYLES,
+      columns: columns.map((c) => ({ width: c.width, hidden: false, headerStyle: 0 })),
+    },
+    rows: rows.map((r, n) => ({
+      row: n + 2,
+      cells: r.cells.map((v) => String(v ?? '')),
+      inherited: r.inherited || [],
+      formulas: [],
+      identity: null,
+      height: Math.max(...r.cells.map((v, i) => lineCount(v, columns[i].width))) * LINE_HEIGHT_PT,
+      styles: columns.map((c, i) => {
+        if (r.total) return c.number ? 5 : 4;
+        if (c.number) return 2;
+        return r.bold?.includes(i) ? 3 : 1;
+      }),
+    })),
+  };
+}
+
+function summarySheet(data) {
+  const rows = [];
+  let kpis = 0;
+  let projects = 0;
+  for (const p of data.perspectives) {
+    p.objectives.forEach((o, i) => {
+      rows.push({
+        cells: [p.name, o.name, o.kras.join('\n'), o.kpis, o.projects],
+        bold: [0, 1],
+        inherited: i > 0 ? [0] : [],
+      });
+      kpis += o.kpis;
+      projects += o.projects;
+    });
+  }
+  const objectives = rows.length;
+  rows.push({ cells: ['Total', `${objectives} objectives`, '', kpis, projects], total: true });
+
+  return buildSheet(SUMMARY_TAB, [
+    { label: 'Perspectives', width: 18 },
+    { label: 'Objectives', width: 30 },
+    { label: 'Key Result Areas', width: 48 },
+    { label: 'KPIs', width: 10, number: true },
+    { label: 'Projects', width: 10, number: true },
+  ], rows);
+}
+
+function targetsSheet(data) {
+  return buildSheet(TARGETS_TAB, [
+    { label: 'Objective', width: 32 },
+    { label: 'Target', width: 70 },
+  ], data.targets.map((t) => ({ cells: [t.objective, t.targets.join('\n')], bold: [0] })));
+}
+
+// Summary of a scorecard sheet, shown as read-only Excel-style sheets (switch with the tabs)
 function MapSummary({ sheet }) {
   const { data, loading, error } = useStrategyMap({ sheet });
+  const [tab, setTab] = useState(SUMMARY_TAB);
+  const sheets = useMemo(() => (data ? { [SUMMARY_TAB]: summarySheet(data), [TARGETS_TAB]: targetsSheet(data) } : null), [data]);
 
   if (loading) return <Loader label="Reading the strategy map from Excel…" />;
   if (error) return <ErrorMessage>{error}</ErrorMessage>;
-  if (!data) return null;
+  if (!sheets) return null;
+
+  const tabs = [
+    { id: 'summary', name: SUMMARY_TAB, tabColor: '#107C41' },
+    ...(data.targets.length ? [{ id: 'targets', name: TARGETS_TAB, tabColor: '#7030A0' }] : []),
+  ];
 
   return (
-    <>
-      <p className="muted">Summary of “{data.sheet}”</p>
-      <div className="map">
-        {data.perspectives.map((p) => (
-          <section key={p.name} className="map__lane">
-            <h2 className="map__lane-title">{p.name}</h2>
-            <div className="map__items">
-              {p.objectives.map((o, i) => (
-                <Link key={`${i}-${o.name}`} to={`/scorecard?sheet=${encodeURIComponent(data.sheet)}`} className="map__item">
-                  <span className="map__item-name">{o.name}</span>
-                  <span className="map__item-counts">{plural(o.kpis, 'KPI')} · {plural(o.projects, 'project')}</span>
-                  <ul className="map__kras">
-                    {o.kras.slice(0, MAX_KRAS_SHOWN).map((k) => <li key={k}>{k}</li>)}
-                    {o.kras.length > MAX_KRAS_SHOWN && <li className="muted">+{o.kras.length - MAX_KRAS_SHOWN} more</li>}
-                  </ul>
-                </Link>
-              ))}
-            </div>
-          </section>
-        ))}
-      </div>
-
-      {data.targets.length > 0 && (
-        <Card title="Institutional targets">
-          <dl className="map-targets">
-            {data.targets.map((t) => (
-              <div key={t.objective} className="map-targets__row">
-                <dt>{t.objective}</dt>
-                <dd>{t.targets.map((line) => <span key={line}>{line}</span>)}</dd>
-              </div>
-            ))}
-          </dl>
-        </Card>
-      )}
-    </>
+    <div className="sheet-view">
+      <p className="muted sheet-view__help">
+        Summary of “{data.sheet}”. Totals are calculated from the scorecard sheet; edit the data in the Excel tab.
+      </p>
+      <SheetGrid grid={sheets[tab]} sheets={tabs} onSheetChange={setTab} />
+    </div>
   );
 }
 
 // Excel view of one sheet: sheets with a Lead column render as a grid filtered to the
 // user's department (Lead contains <code>); other sheets get an "Open in Excel" card.
-function SheetView({ sheet, workbook, department, onDepartmentChange, sheets, onSheetChange }) {
-  const { data: grid, loading, error, reload } = useSheetGrid({ sheet, department });
+// The grid data is loaded by the page, whose toolbar holds the Lead filter and Refresh button.
+function SheetView({ sheet, workbook, gridState, sheets, onSheetChange }) {
+  const { data: grid, loading, error } = gridState;
 
   if (loading) return <Loader label={`Reading “${sheet}” from Excel…`} />;
   if (error) return <ErrorMessage>{error}</ErrorMessage>;
@@ -90,26 +160,6 @@ function SheetView({ sheet, workbook, department, onDepartmentChange, sheets, on
 
   return (
     <div className="sheet-view">
-      <div className="toolbar">
-        {grid.canViewAll && (
-          <label className="field">
-            <span className="field__label">Lead</span>
-            <select className="input" value={department} onChange={(e) => onDepartmentChange(e.target.value)}>
-              <option value="">All departments</option>
-              {grid.departments.map((d) => (
-                <option key={d.code} value={d.code}>{d.name ? `${d.code} – ${d.name}` : d.code}</option>
-              ))}
-            </select>
-          </label>
-        )}
-        <button type="button" className="btn btn--ghost" onClick={() => reload(true)}>Refresh from Excel</button>
-        {workbook && (
-          <a className="btn btn--primary" href={excelUrl(workbook.docUrl, { sheet })} target={EXCEL_WINDOW} rel="noreferrer">
-            Open in Excel ↗
-          </a>
-        )}
-      </div>
-
       {noDepartment ? (
         <div className="alert alert--info">
           Your account is not linked to a department yet, so no rows can be shown. Ask the ICT office to set your
@@ -163,6 +213,10 @@ export default function StrategyMap() {
   }
 
   const listsLoading = allSheets.loading || scorecardSheets.loading;
+  const department = params.get('department') || '';
+  const showGrid = !listsLoading && view === 'excel' && !!sheet;
+  const gridState = useSheetGrid({ sheet: showGrid ? sheet : '', department });
+  const grid = showGrid && gridState.data?.supported ? gridState.data : null;
 
   return (
     <div className="page">
@@ -186,17 +240,37 @@ export default function StrategyMap() {
           </button>
         </div>
         <SheetSelect sheets={sheetList} value={sheet} onChange={(name) => update({ sheet: name, department: '' })} />
+        {grid?.canViewAll && (
+          <label className="field">
+            <span className="field__label">Lead</span>
+            <select className="input" value={department} onChange={(e) => update({ department: e.target.value })}>
+              <option value="">All departments</option>
+              {grid.departments.map((d) => (
+                <option key={d.code} value={d.code}>{d.name ? `${d.code} – ${d.name}` : d.code}</option>
+              ))}
+            </select>
+          </label>
+        )}
+        {showGrid && (
+          <button
+            type="button"
+            className="btn btn--ghost"
+            onClick={() => gridState.reload(true)}
+            disabled={gridState.loading}
+          >
+            Refresh from Excel
+          </button>
+        )}
       </div>
 
       <ErrorMessage>{allSheets.error || scorecardSheets.error || workbook.error}</ErrorMessage>
       {listsLoading && <Loader />}
 
-      {!listsLoading && view === 'excel' && sheet && (
+      {showGrid && (
         <SheetView
           sheet={sheet}
           workbook={workbook.data}
-          department={params.get('department') || ''}
-          onDepartmentChange={(code) => update({ department: code })}
+          gridState={gridState}
           sheets={allSheets.data || []}
           onSheetChange={(name) => update({ sheet: name, department: '' })}
         />
