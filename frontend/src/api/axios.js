@@ -16,13 +16,16 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// On 401, drop the token and let AuthProvider sign the user out
+// On 401, drop the token and let AuthProvider sign the user out. A deactivated account's
+// message is passed along so the login page can show it.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
       clearToken();
-      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+      const data = error.response.data || {};
+      const detail = data.code === 'ACCOUNT_DISABLED' ? data.message : '';
+      window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT, { detail }));
     }
     return Promise.reject(error);
   }

@@ -6,6 +6,9 @@ import Dashboard from './pages/Dashboard/Dashboard';
 import StrategyMap from './pages/StrategyMap/StrategyMap';
 import StrategyScorecard from './pages/StrategyScorecard/StrategyScorecard';
 import Profile from './pages/Profile/Profile';
+import Departments from './pages/Departments/Departments';
+import Users from './pages/Users/Users';
+import AuditLogs from './pages/AuditLogs/AuditLogs';
 
 export default function App() {
   return (
@@ -18,6 +21,14 @@ export default function App() {
           <Route path="/strategy-map" element={<StrategyMap />} />
           <Route path="/scorecard" element={<StrategyScorecard />} />
           <Route path="/profile" element={<Profile />} />
+        </Route>
+      </Route>
+
+      <Route element={<ProtectedRoute roles={['admin']} />}>
+        <Route element={<AppLayout />}>
+          <Route path="/users" element={<Users />} />
+          <Route path="/departments" element={<Departments />} />
+          <Route path="/audit-logs" element={<AuditLogs />} />
         </Route>
       </Route>
 

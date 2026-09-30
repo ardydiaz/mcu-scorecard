@@ -1,5 +1,6 @@
 import { excelUrl } from '../../utils/excelLinks';
 import SheetViewHint from './SheetViewHint';
+import { logActivity } from '../../api/auditApi';
 
 // SharePoint only allows Excel for the web to be framed by Microsoft sites
 // (CSP frame-ancestors), so the workbook opens in its own browser tab instead.
@@ -19,7 +20,7 @@ export default function ExcelEmbed({ workbook, sheet }) {
           {workbook.name} opens in Excel for the web, in its own tab. Edits there save automatically to SharePoint.
           Choosing another sheet above switches that same tab.
         </p>
-        <a className="btn btn--primary" href={href} target={EXCEL_WINDOW} rel="noreferrer">
+        <a className="btn btn--primary" href={href} target={EXCEL_WINDOW} rel="noreferrer" onClick={() => logActivity('excel.open', sheet)}>
           Open “{sheet}” in Excel ↗
         </a>
         <SheetViewHint />

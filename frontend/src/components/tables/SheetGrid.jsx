@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { excelUrl } from '../../utils/excelLinks';
 import { EXCEL_WINDOW } from '../common/ExcelEmbed';
 import SheetRibbon from './SheetRibbon';
+import { logActivity } from '../../api/auditApi';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const ZOOM_STEPS = [50, 60, 70, 80, 90, 100, 110, 125, 150];
@@ -119,7 +120,7 @@ function CellEditor({ initial, isDate, minHeight, onCommit, onCancel, onDraftCha
  * a status bar. `onSaveCell` writes an edit to the Excel file and returns { text, identity }.
  * Carried-down values (grey italics) and formula cells are read-only.
  */
-export default function SheetGrid({ grid, docUrl, onSaveCell, onFormatCell, sheets = [], onSheetChange }) {
+export default function SheetGrid({ grid, docUrl, onSaveCell, onFormatCell, onMergeCells, sheets = [], onSheetChange }) {
   const format = grid.format;
   const [zoomPct, setZoomPct] = useState(() => readZoom(format?.zoom || 100));
   const zoom = zoomPct / 100;
@@ -163,6 +164,7 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, onFormatCell, shee
     setRows(grid.rows);
     setStyles(grid.format?.styles || []);
     setSel({ r: 0, c: 0 });
+    setAnchor(null);
     setEditing(null);
     setErrors({});
     setStatusState({ text: '', error: false });
@@ -182,18 +184,64 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, onFormatCell, shee
   const rowHeightOf = (row) => ptPx(row.height || format?.defaultRowHeight || DEFAULT_HEIGHT_PT) * zoom;
   const headerHeight = ptPx(format?.headerHeight || 30) * zoom;
 
+  // Merged areas as grid positions { r0, c0, r1, c1 }. row.merges ({ col, span, rows }) is on the
+  // area's top row; an area only spans down over rows shown consecutively (filters can hide some).
+  const mergeLayout = useMemo(() => {
+    const cover = new Map(); // "r-c" -> area, for every cell inside an area
+    rows.forEach((row, r) => {
+      for (const m of row.merges || []) {
+        const inside = cols.map((h, c) => ({ h, c })).filter(({ h }) => h.index >= m.col && h.index < m.col + m.span);
+        if (!inside.length) continue;
+        let r1 = r;
+        while (r1 + 1 < rows.length && rows[r1 + 1].row === rows[r1].row + 1 && rows[r1 + 1].row < row.row + (m.rows || 1)) r1++;
+        const area = { r0: r, c0: inside[0].c, r1, c1: inside[inside.length - 1].c };
+        for (let rr = area.r0; rr <= area.r1; rr++) {
+          for (let cc = area.c0; cc <= area.c1; cc++) cover.set(`${rr}-${cc}`, area);
+        }
+      }
+    });
+    return cover;
+  }, [rows, cols]);
+  const mergeAt = (r, c) => mergeLayout.get(`${r}-${c}`) || null;
+  // A position inside a merged area means its top-left cell
+  const snap = (r, c) => {
+    const area = mergeAt(r, c);
+    return area ? { r: area.r0, c: area.c0 } : { r, c };
+  };
+
   const current = rows[sel.r];
   const currentCol = cols[sel.c];
-  const address = current && currentCol ? `${currentCol.letter}${current.row}` : '';
   const cellKey = (row, i) => `${row}:${i}`;
-  const isReadOnly = (row, i) => !grid.editable || !onSaveCell || row.inherited.includes(i) || row.formulas.includes(i);
+  // row.editable is false on rows another department leads (shown to view-all users like EXECOM)
+  const isReadOnly = (row, i) => !grid.editable || !onSaveCell || row.editable === false
+    || row.inherited.includes(i) || row.formulas.includes(i);
+  const notYourRow = (row) => row.editable === false;
 
-  const move = useCallback((dr, dc) => {
-    setSel((s) => ({
-      r: Math.max(0, Math.min(rows.length - 1, s.r + dr)),
-      c: Math.max(0, Math.min(cols.length - 1, s.c + dc)),
-    }));
-  }, [rows.length, cols.length]);
+  // Range selected with Shift+click / Shift+arrows: from `anchor` to `sel`
+  const [anchor, setAnchor] = useState(null);
+  const range = anchor && {
+    r1: Math.min(anchor.r, sel.r), r2: Math.max(anchor.r, mergeAt(sel.r, sel.c)?.r1 ?? sel.r),
+    c1: Math.min(anchor.c, sel.c), c2: Math.max(anchor.c, mergeAt(sel.r, sel.c)?.c1 ?? sel.c),
+  };
+  const isRange = !!range && (range.r1 !== range.r2 || range.c1 !== range.c2);
+  const inRange = (r, c) => isRange && r >= range.r1 && r <= range.r2 && c >= range.c1 && c <= range.c2;
+  const address = !current || !currentCol ? ''
+    : isRange ? `${cols[range.c1].letter}${rows[range.r1].row}:${cols[range.c2].letter}${rows[range.r2].row}`
+      : `${currentCol.letter}${current.row}`;
+
+  // Arrow keys step over merged areas; `extend` (Shift) grows the selected range instead
+  function move(dr, dc, extend = false) {
+    if (extend) setAnchor((a) => a || sel);
+    else setAnchor(null);
+    setSel((s) => {
+      const area = mergeAt(s.r, s.c);
+      let r = dr > 0 ? (area?.r1 ?? s.r) + dr : s.r + dr;
+      let c = dc > 0 ? (area?.c1 ?? s.c) + dc : s.c + dc;
+      r = Math.max(0, Math.min(rows.length - 1, r));
+      c = Math.max(0, Math.min(cols.length - 1, c));
+      return snap(r, c);
+    });
+  }
 
   // Keep the selected cell visible
   useEffect(() => {
@@ -215,7 +263,9 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, onFormatCell, shee
         ? `${address} is calculated by a formula and can't be edited here.`
         : current.inherited.includes(currentCol.index)
           ? `${address} is carried down from a row above. Edit it on the row where it starts.`
-          : `${address} is read-only.`, true);
+          : notYourRow(current)
+            ? `${address} is read-only: your department doesn't lead row ${current.row}.`
+            : `${address} is read-only.`, true);
       return;
     }
     const value = current.cells[currentCol.index];
@@ -258,7 +308,7 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, onFormatCell, shee
   }
 
   // Formatting is allowed where editing is, formula cells included (only their value is protected)
-  const canFormat = (row, i) => grid.editable && !!onFormatCell && !row.inherited.includes(i);
+  const canFormat = (row, i) => grid.editable && !!onFormatCell && row.editable !== false && !row.inherited.includes(i);
   const selectedFormattable = !!current && !!currentCol && canFormat(current, currentCol.index);
 
   async function applyFormat(changes) {
@@ -266,7 +316,9 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, onFormatCell, shee
     if (!selectedFormattable) {
       setStatus(current.inherited.includes(currentCol.index)
         ? `${address} is carried down from a row above. Format it on the row where it starts.`
-        : `${address} can't be formatted.`, true);
+        : notYourRow(current)
+          ? `${address} is read-only: your department doesn't lead row ${current.row}.`
+          : `${address} can't be formatted.`, true);
       return;
     }
     const row = current;
@@ -299,6 +351,105 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, onFormatCell, shee
 
   const selectedStyle = current && currentCol ? style(current.styles?.[currentCol.index]) : null;
 
+  // Merge: the selected range. Unmerge: a merged cell selected on its own. Like Excel, the button
+  // is always available; `problem` explains why an action can't run on the current selection.
+  const selectedMerge = !isRange ? mergeAt(sel.r, sel.c) : null;
+  const mergeState = (() => {
+    const busy = !!saving || !!editing;
+    if (!onMergeCells || !current || !currentCol) return { available: false };
+    if (selectedMerge) {
+      return { available: true, busy, canMerge: false, canUnmerge: selectedFormattable, problem: selectedFormattable ? null : `${address} can't be changed by you.` };
+    }
+    if (!isRange) {
+      return { available: true, busy, canMerge: false, canUnmerge: false, problem: 'Select two or more cells first: Shift+click, or hold Shift and use the arrow keys.' };
+    }
+    const selectedRows = rows.slice(range.r1, range.r2 + 1);
+    const gap = selectedRows.findIndex((x, i) => i > 0 && x.row !== selectedRows[i - 1].row + 1);
+    if (gap > 0) {
+      return {
+        available: true, busy, canMerge: false, canUnmerge: false,
+        problem: `Rows ${selectedRows[gap - 1].row} and ${selectedRows[gap].row} aren't next to each other in the sheet (rows in between are hidden by the Lead filter), so they can't be merged.`,
+      };
+    }
+    const locked = selectedRows.find((x) => x.editable === false);
+    if (locked) return { available: true, busy, canMerge: false, canUnmerge: false, problem: `Row ${locked.row} is led by another department.` };
+    const ok = canFormat(rows[range.r1], cols[range.c1].index);
+    return { available: true, busy, canMerge: ok, canUnmerge: false, problem: ok ? null : `${cols[range.c1].letter}${rows[range.r1].row} can't be changed by you.` };
+  })();
+
+  async function mergeCells({ merge, center = false }) {
+    if (merge ? !mergeState.canMerge : !mergeState.canUnmerge) {
+      setStatus(mergeState.problem || (merge ? 'Select two or more cells to merge.' : 'Select a merged cell to unmerge.'), true);
+      return;
+    }
+    const area = isRange ? range : { r1: selectedMerge.r0, r2: selectedMerge.r1, c1: selectedMerge.c0, c2: selectedMerge.c1 };
+    const row = rows[area.r1];
+    const lastRow = rows[area.r2];
+    const startIdx = cols[area.c1].index;
+    const endIdx = cols[area.c2].index;
+    const span = `${cols[area.c1].letter}${row.row}:${cols[area.c2].letter}${lastRow.row}`;
+    const request = {
+      row,
+      endRow: lastRow.row,
+      identities: rows.slice(area.r1, area.r2 + 1).map((x) => x.identity),
+      startCol: startIdx,
+      endCol: endIdx,
+      merge,
+      center,
+    };
+    const startC = area.c1;
+
+    setSaving(cellKey(row.row, startIdx));
+    setStatus(`${merge ? 'Merging' : 'Unmerging'} ${span}…`);
+    try {
+      let result;
+      try {
+        result = await onMergeCells({ ...request, confirm: false });
+      } catch (err) {
+        if (err.code !== 'CONFIRM_MERGE') throw err;
+        const list = err.lost.map((l) => `• ${l.cell} (${l.column}): ${l.value.length > 60 ? `${l.value.slice(0, 60)}…` : l.value}`).join('\n');
+        if (!window.confirm(`Merging keeps only the value in ${cols[startC].letter}${row.row}.\n\nThese values will be deleted:\n${list}\n\nMerge anyway?`)) {
+          setStatus('Merge cancelled');
+          return;
+        }
+        result = await onMergeCells({ ...request, confirm: true });
+      }
+
+      let styleIndex = null;
+      if (result.style) {
+        const styleKey = JSON.stringify(result.style);
+        styleIndex = styles.findIndex((st) => JSON.stringify(st) === styleKey);
+        if (styleIndex === -1) {
+          styleIndex = styles.length;
+          setStyles((all) => [...all, result.style]);
+        }
+      }
+      const endRowNumber = result.endRow ?? lastRow.row;
+      setRows((all) => all.map((x) => {
+        if (x.row < row.row || x.row > endRowNumber) return x;
+        const isTop = x.row === row.row;
+        // Merged areas inside the range are replaced by the new one (or removed when unmerging)
+        const others = (x.merges || []).filter((m) => m.col + m.span - 1 < startIdx || m.col > endIdx);
+        return {
+          ...x,
+          merges: merge && isTop ? [...others, { col: startIdx, span: endIdx - startIdx + 1, rows: endRowNumber - row.row + 1 }] : others,
+          // Merging empties every cell except the top-left one
+          cells: merge ? x.cells.map((v, i) => (i >= startIdx && i <= endIdx && !(isTop && i === startIdx) ? '' : v)) : x.cells,
+          styles: styleIndex === null || !isTop ? x.styles
+            : (x.styles || grid.headers.map(() => null)).map((st, i) => (i === startIdx ? styleIndex : st)),
+        };
+      }));
+      setAnchor(null);
+      setSel({ r: area.r1, c: startC });
+      setStatus(`${merge ? 'Merged' : 'Unmerged'} ${span} in Excel`);
+    } catch (err) {
+      setStatus(`${span}: ${err.message}`, true);
+    } finally {
+      setSaving(null);
+      scrollRef.current?.focus();
+    }
+  }
+
   function onKeyDown(e) {
     if (editing) return;
     if (e.key === 'Escape' && expanded) { e.preventDefault(); setExpanded(false); return; }
@@ -313,11 +464,16 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, onFormatCell, shee
       ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1],
       PageUp: [-10, 0], PageDown: [10, 0],
     };
-    if (keys[e.key]) { e.preventDefault(); move(...keys[e.key]); return; }
+    if (keys[e.key]) { e.preventDefault(); move(...keys[e.key], e.shiftKey); return; }
     if (e.key === 'Enter') { e.preventDefault(); move(e.shiftKey ? -1 : 1, 0); return; }
     if (e.key === 'Tab') { e.preventDefault(); move(0, e.shiftKey ? -1 : 1); return; }
-    if (e.key === 'Home') { e.preventDefault(); setSel((s) => ({ r: e.ctrlKey ? 0 : s.r, c: 0 })); return; }
-    if (e.key === 'End' && e.ctrlKey) { e.preventDefault(); setSel({ r: rows.length - 1, c: cols.length - 1 }); return; }
+    if (e.key === 'Home') { e.preventDefault(); setAnchor(null); setSel((s) => ({ r: e.ctrlKey ? 0 : s.r, c: 0 })); return; }
+    if (e.key === 'End' && e.ctrlKey) {
+      e.preventDefault();
+      setAnchor(null);
+      setSel(snap(rows.length - 1, cols.length - 1));
+      return;
+    }
     if (e.key === 'F2') { e.preventDefault(); startEdit(); return; }
     // Delete/Backspace start editing an empty cell (Enter confirms), like typing over it
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); startEdit(''); return; }
@@ -338,6 +494,12 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, onFormatCell, shee
 
   const isFull = fullscreen || expanded;
 
+  // Column letters to highlight: the selected range, or the selected (possibly merged) cell
+  const selCols = new Set();
+  const [colFrom, colTo] = isRange ? [range.c1, range.c2] : [sel.c, mergeAt(sel.r, sel.c)?.c1 ?? sel.c];
+  const [rowFrom, rowTo] = isRange ? [range.r1, range.r2] : [sel.r, mergeAt(sel.r, sel.c)?.r1 ?? sel.r];
+  for (let c = colFrom; c <= colTo; c++) selCols.add(c);
+
   return (
     <div ref={containerRef} className={expanded ? 'xl xl--expanded' : 'xl'}>
       <SheetTopBar
@@ -348,7 +510,12 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, onFormatCell, shee
         toggleFullscreen={toggleFullscreen}
       />
       {onFormatCell && (
-        <SheetRibbon style={selectedStyle} disabled={!selectedFormattable || !!saving || !!editing} onApply={applyFormat} />
+        <SheetRibbon
+          style={selectedStyle}
+          disabled={!selectedFormattable || !!saving || !!editing}
+          onApply={applyFormat}
+          merge={onMergeCells ? { ...mergeState, onMerge: mergeCells } : null}
+        />
       )}
       <div className="xl-formula">
         <div className="xl-namebox" title="Selected cell">{address}</div>
@@ -378,7 +545,7 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, onFormatCell, shee
             <tr className="xl-letters">
               <th className="xl-corner" />
               {cols.map((h, c) => (
-                <th key={h.letter} className={c === sel.c ? 'xl-letter xl-letter--sel' : 'xl-letter'}>{h.letter}</th>
+                <th key={h.letter} className={selCols.has(c) ? 'xl-letter xl-letter--sel' : 'xl-letter'}>{h.letter}</th>
               ))}
             </tr>
             <tr className="xl-headrow" style={{ height: headerHeight }}>
@@ -399,38 +566,57 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, onFormatCell, shee
               const height = rowHeightOf(row);
               return (
                 <tr key={row.row} style={{ height }}>
-                  <th className={r === sel.r ? 'xl-rownum xl-rownum--sel' : 'xl-rownum'}>
+                  <th className={r >= rowFrom && r <= rowTo ? 'xl-rownum xl-rownum--sel' : 'xl-rownum'}>
                     {docUrl ? (
                       <a
                         href={excelUrl(docUrl, { sheet: grid.excelSheet || grid.sheet, cell: row.linkCell || `${grid.leadColumn}${row.row}` })}
                         target={EXCEL_WINDOW}
                         rel="noreferrer"
                         title={`Open row ${row.row} in Excel`}
+                        onClick={() => logActivity('excel.open', `${grid.excelSheet || grid.sheet}!${row.linkCell || `${grid.leadColumn}${row.row}`}`)}
                       >
                         {row.row}
                       </a>
                     ) : row.row}
                   </th>
                   {cols.map((h, c) => {
+                    // Cells covered by a merged area aren't drawn; its top-left cell spans them
+                    const merged = mergeAt(r, c);
+                    if (merged && (r !== merged.r0 || c !== merged.c0)) return null;
                     const i = h.index;
                     const key = cellKey(row.row, i);
                     const selected = r === sel.r && c === sel.c;
                     const classes = ['xl-cell'];
                     if (row.inherited.includes(i)) classes.push('xl-cell--inherited');
                     if (selected) classes.push('xl-cell--sel');
+                    if (inRange(r, c) && !selected) classes.push('xl-cell--range');
+                    if (merged) classes.push('xl-cell--merged');
                     if (saving === key) classes.push('xl-cell--saving');
                     if (errors[key]) classes.push('xl-cell--error');
                     return (
                       <td
                         key={h.letter}
                         data-cell={`${r}-${c}`}
+                        colSpan={merged && merged.c1 > merged.c0 ? merged.c1 - merged.c0 + 1 : undefined}
+                        rowSpan={merged && merged.r1 > merged.r0 ? merged.r1 - merged.r0 + 1 : undefined}
                         className={classes.join(' ')}
                         style={cellCss(style(row.styles?.[i]), zoom)}
                         title={errors[key] || undefined}
-                        onMouseDown={() => { if (!editing) setSel({ r, c }); }}
+                        onMouseDown={(e) => {
+                          if (editing) return;
+                          if (e.shiftKey) {
+                            e.preventDefault(); // don't select text
+                            setAnchor((a) => a || sel);
+                          } else {
+                            setAnchor(null);
+                          }
+                          setSel({ r, c });
+                        }}
                         onDoubleClick={() => startEdit()}
                       >
-                        <div className="xl-clip" style={{ maxHeight: height }}>{row.cells[i]}</div>
+                        <div className="xl-clip" style={{ maxHeight: merged ? rows.slice(merged.r0, merged.r1 + 1).reduce((sum, x) => sum + rowHeightOf(x), 0) : height }}>
+                          {row.cells[i]}
+                        </div>
                         {selected && !editing && clipped && (
                           <div className="xl-peek" role="tooltip">{row.cells[i]}</div>
                         )}

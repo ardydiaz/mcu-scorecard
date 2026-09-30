@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAllSheets, useScorecardSheets, useSheetGrid, useStrategyMap, useWorkbook } from '../../hooks/useStrategy';
 import SheetGrid from '../../components/tables/SheetGrid';
-import { formatGridCell, updateGridCell } from '../../api/strategyApi';
+import { formatGridCell, mergeGridCells, updateGridCell } from '../../api/strategyApi';
 import { getErrorMessage } from '../../api/axios';
 import Loader from '../../components/common/Loader';
 import ErrorMessage from '../../components/common/ErrorMessage';
@@ -102,6 +102,29 @@ function SheetView({ sheet, workbook, gridState, sheets, onSheetChange }) {
     }
   }
 
+  // Merges/unmerges cells in one row. A CONFIRM_MERGE error keeps its code and list of values
+  // that would be deleted, so SheetGrid can ask the user.
+  async function mergeCells({ row, endRow, identities, startCol, endCol, merge, center, confirm }) {
+    try {
+      return await mergeGridCells({
+        sheet: grid.sheet,
+        row: row.row,
+        endRow,
+        identities,
+        startColumn: grid.headers[startCol].letter,
+        endColumn: grid.headers[endCol].letter,
+        merge,
+        center,
+        confirm,
+      });
+    } catch (err) {
+      const error = new Error(getErrorMessage(err));
+      error.code = err.response?.data?.code;
+      error.lost = err.response?.data?.lost || [];
+      throw error;
+    }
+  }
+
   // Changes one cell's formatting in the Excel file; returns { style }
   async function formatCell({ row, col, format }) {
     try {
@@ -133,6 +156,7 @@ function SheetView({ sheet, workbook, gridState, sheets, onSheetChange }) {
             docUrl={workbook?.docUrl}
             onSaveCell={saveCell}
             onFormatCell={formatCell}
+            onMergeCells={mergeCells}
             sheets={sheets}
             onSheetChange={onSheetChange}
           />

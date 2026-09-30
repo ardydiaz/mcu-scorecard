@@ -43,6 +43,14 @@ export async function formatGridCell({ sheet, row, column, identity, format }) {
   return data;
 }
 
+// Merges (merge: true) or unmerges a range, e.g. R130:T130 or A129:A131 (row..endRow). `identities`
+// has one row identity per row, top to bottom. Without `confirm`, a merge that would delete values
+// fails with code CONFIRM_MERGE and the list of values (`lost`).
+export async function mergeGridCells({ sheet, row, endRow, startColumn, endColumn, identities, merge, center, confirm }) {
+  const { data } = await api.post('/strategy/grid/merge', { sheet, row, endRow, startColumn, endColumn, identities, merge, center, confirm });
+  return data;
+}
+
 export async function getStrategyMap({ sheet } = {}) {
   const { data } = await api.get('/strategy/map', { params: { sheet: sheet || undefined } });
   return data;

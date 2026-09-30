@@ -1,10 +1,31 @@
-import { useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import { logActivity } from '../../api/auditApi';
+
+// Page names recorded in the audit log
+const PAGE_NAMES = {
+  '/dashboard': 'Dashboard',
+  '/strategy-map': 'Strategy Map',
+  '/scorecard': 'Strategy Scorecard',
+  '/profile': 'Profile',
+  '/users': 'Users (admin)',
+  '/departments': 'Departments (admin)',
+  '/audit-logs': 'Audit Logs (admin)',
+};
 
 export default function AppLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const { pathname } = useLocation();
+  const lastLogged = useRef(null);
+
+  // Record each page the user opens (once per page change, not on re-renders or filter changes)
+  useEffect(() => {
+    if (lastLogged.current === pathname) return;
+    lastLogged.current = pathname;
+    logActivity('page.view', PAGE_NAMES[pathname] || pathname, { path: pathname });
+  }, [pathname]);
 
   return (
     <div className="layout">

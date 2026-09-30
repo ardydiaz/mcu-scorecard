@@ -1,7 +1,10 @@
 import api from './axios';
 
-export async function getUsers({ page = 1, limit = 50 } = {}) {
-  const { data } = await api.get('/users', { params: { page, limit } });
+// q searches name/email; role and status ('active' | 'inactive') filter. Returns { data, total, page, limit }
+export async function getUsers({ page = 1, limit = 50, q, role, status } = {}) {
+  const { data } = await api.get('/users', {
+    params: { page, limit, q: q || undefined, role: role || undefined, status: status || undefined },
+  });
   return data;
 }
 

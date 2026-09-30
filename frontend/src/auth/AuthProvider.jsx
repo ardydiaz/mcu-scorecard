@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AuthContext from '../context/AuthContext';
-import { getMe, loginWithMicrosoft } from '../api/authApi';
+import { getMe, loginWithMicrosoft, logout as logoutApi } from '../api/authApi';
 import { getErrorMessage, UNAUTHORIZED_EVENT } from '../api/axios';
 import {
   clearToken,
@@ -68,10 +68,14 @@ export default function AuthProvider({ redirectResult, redirectError, children }
     task.finally(() => setLoading(false));
   }, [redirectResult, exchangeToken, loadUser]);
 
-  // The axios client fires this when the API rejects the app JWT
+  // The axios client fires this when the API rejects the app JWT (detail: e.g. "account deactivated")
   useEffect(() => {
-    window.addEventListener(UNAUTHORIZED_EVENT, clearSession);
-    return () => window.removeEventListener(UNAUTHORIZED_EVENT, clearSession);
+    const onUnauthorized = (e) => {
+      clearSession();
+      if (e.detail) setError(e.detail);
+    };
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
   }, [clearSession]);
 
   // Reuses an existing Microsoft session when possible, otherwise redirects to Microsoft
@@ -92,7 +96,9 @@ export default function AuthProvider({ redirectResult, redirectError, children }
     }
   }, [exchangeToken]);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    // Record the sign-out while the app token is still valid; never block signing out on it
+    await logoutApi().catch(() => {});
     clearSession();
     signOutOfMicrosoft();
   }, [clearSession]);

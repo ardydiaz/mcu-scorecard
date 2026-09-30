@@ -30,7 +30,8 @@ export default function Dashboard() {
   const firstName = (user.displayName || '').split(' ')[0];
   const departments = (user.departments || []).map((d) => d.code || d.name);
   const counts = scorecard.data?.counts;
-  const scope = user.role === 'admin' ? 'All' : 'My';
+  // Admins and view-all departments (EXECOM) get counts for every department
+  const scope = scorecard.data?.canViewAll ? 'All' : 'My';
 
   return (
     <div className="page">

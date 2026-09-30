@@ -19,6 +19,7 @@ const Icon = {
   alignMiddle: <svg viewBox="0 0 16 16"><path d="M2 8h12M8 1v4M6 3l2 2 2-2M8 15v-4M6 13l2-2 2 2" /></svg>,
   alignBottom: <svg viewBox="0 0 16 16"><path d="M2 14h12M8 2v9M5 8l3 3 3-3" /></svg>,
   wrap: <svg viewBox="0 0 16 16"><path d="M2 3h12M2 7h10a2 2 0 010 4H8M9.5 9.5L8 11l1.5 1.5M2 11h3M2 14h12" /></svg>,
+  merge: <svg viewBox="0 0 16 16"><path d="M1.5 3.5h13v9h-13zM4 8h8M6 6l-2 2 2 2M10 6l2 2-2 2" /></svg>,
   fill: <svg viewBox="0 0 16 16"><path d="M3 8l5-5 5 5-5 5z M11 10.5c0 1 1 2 1 2.5a1 1 0 01-2 0c0-.5 1-1.5 1-2.5" /></svg>,
 };
 
@@ -67,6 +68,64 @@ function ColorPicker({ label, icon, value, emptyLabel, disabled, onPick }) {
   );
 }
 
+/**
+ * Split button like Excel's "Merge & Center": the main part merges & centers the selection (or
+ * unmerges a merged cell), the ▾ opens Merge & Center / Merge Cells / Unmerge Cells.
+ * `merge`: { available, busy, canMerge, canUnmerge, problem, onMerge({ merge, center }) }.
+ * Always clickable, like Excel; when the selection can't be merged, onMerge reports why.
+ */
+function MergeMenu({ merge }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = (e) => { if (!ref.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+
+  const run = (options) => { setOpen(false); merge.onMerge(options); };
+  const disabled = !merge.available || merge.busy;
+  const main = merge.canUnmerge ? { merge: false } : { merge: true, center: true };
+  const title = merge.canUnmerge ? 'Unmerge Cells' : merge.canMerge ? 'Merge & Center' : merge.problem || 'Merge & Center';
+
+  return (
+    <div className="rb-color rb-split" ref={ref}>
+      <button
+        type="button"
+        className={`rb-btn rb-btn--wide rb-split__main ${merge.canUnmerge ? 'rb-btn--on' : ''}`}
+        title={title}
+        disabled={disabled}
+        onClick={() => run(main)}
+      >
+        {Icon.merge}<span>Merge &amp; Center</span>
+      </button>
+      <button
+        type="button"
+        className="rb-btn rb-split__caret"
+        title="More merge options"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => setOpen((o) => !o)}
+      >
+        ▾
+      </button>
+      {open && (
+        <div className="rb-menu" role="menu">
+          <button type="button" role="menuitem" onClick={() => run({ merge: true, center: true })}>Merge &amp; Center</button>
+          <button type="button" role="menuitem" onClick={() => run({ merge: true, center: false })}>Merge Cells</button>
+          <button type="button" role="menuitem" onClick={() => run({ merge: false })}>Unmerge Cells</button>
+          <p className="rb-menu__note">
+            {merge.problem || 'Merging keeps only the top-left value. Lead, Projects and KPI can\'t be merged down.'}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Toggle({ on, title, disabled, onClick, children, className = '' }) {
   return (
     <button
@@ -86,7 +145,7 @@ function Toggle({ on, title, disabled, onClick, children, className = '' }) {
  * Home-tab style formatting controls for the selected cell. `style` is the cell's current style
  * (from the workbook), `onApply(changes)` saves a change like { bold: true } to the Excel file.
  */
-export default function SheetRibbon({ style, disabled, onApply }) {
+export default function SheetRibbon({ style, disabled, onApply, merge }) {
   const s = style || {};
   const font = s.font || 'Calibri';
   const size = s.size || 11;
@@ -157,6 +216,7 @@ export default function SheetRibbon({ style, disabled, onApply }) {
         <Toggle on={s.wrap} title="Wrap text" disabled={disabled} onClick={() => onApply({ wrap: !s.wrap })} className="rb-btn--wide">
           {Icon.wrap}<span>Wrap</span>
         </Toggle>
+        {merge && <MergeMenu merge={merge} />}
       </div>
     </div>
   );

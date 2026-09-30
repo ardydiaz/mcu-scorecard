@@ -10,6 +10,11 @@ export async function loginWithMicrosoft(microsoftIdToken) {
   return data;
 }
 
+// Records the sign-out in the audit log (the token itself is discarded by the browser)
+export async function logout() {
+  await api.post('/auth/logout');
+}
+
 export async function getMe() {
   const { data } = await api.get('/auth/me');
   return data;
