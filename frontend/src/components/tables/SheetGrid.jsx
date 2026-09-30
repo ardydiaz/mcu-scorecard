@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { excelUrl } from '../../utils/excelLinks';
 import { EXCEL_WINDOW } from '../common/ExcelEmbed';
+import SheetRibbon from './SheetRibbon';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const ZOOM_STEPS = [50, 60, 70, 80, 90, 100, 110, 125, 150];
@@ -36,6 +37,7 @@ function cellCss(style, zoom) {
     color: style.color || undefined,
     fontWeight: style.bold ? 700 : undefined,
     fontStyle: style.italic ? 'italic' : undefined,
+    textDecoration: style.underline ? 'underline' : undefined,
     fontFamily: style.font ? `"${style.font}", Calibri, Carlito, "Segoe UI", sans-serif` : undefined,
     fontSize: ptPx(style.size || 11) * zoom,
     textAlign: style.h && style.h !== 'general' ? (style.h === 'centerContinuous' ? 'center' : style.h) : undefined,
@@ -117,11 +119,13 @@ function CellEditor({ initial, isDate, minHeight, onCommit, onCancel, onDraftCha
  * a status bar. `onSaveCell` writes an edit to the Excel file and returns { text, identity }.
  * Carried-down values (grey italics) and formula cells are read-only.
  */
-export default function SheetGrid({ grid, docUrl, onSaveCell, sheets = [], onSheetChange }) {
+export default function SheetGrid({ grid, docUrl, onSaveCell, onFormatCell, sheets = [], onSheetChange }) {
   const format = grid.format;
   const [zoomPct, setZoomPct] = useState(() => readZoom(format?.zoom || 100));
   const zoom = zoomPct / 100;
   const [rows, setRows] = useState(grid.rows);
+  // Local copy of the workbook's style table; formatting done here adds styles to it
+  const [styles, setStyles] = useState(format?.styles || []);
   const [sel, setSel] = useState({ r: 0, c: 0 });
   const [editing, setEditing] = useState(null); // { initial }
   const [draft, setDraft] = useState('');
@@ -157,6 +161,7 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, sheets = [], onShe
 
   useEffect(() => {
     setRows(grid.rows);
+    setStyles(grid.format?.styles || []);
     setSel({ r: 0, c: 0 });
     setEditing(null);
     setErrors({});
@@ -172,7 +177,7 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, sheets = [], onShe
     () => grid.headers.map((h, i) => ({ ...h, index: i })).filter((h) => !format?.columns[h.index]?.hidden),
     [grid.headers, format]
   );
-  const style = (index) => (index === null || index === undefined ? null : format?.styles[index]);
+  const style = (index) => (index === null || index === undefined ? null : styles[index]);
   const widthOf = (i) => colPx(format?.columns[i]?.width ?? format?.defaultColWidth) * zoom;
   const rowHeightOf = (row) => ptPx(row.height || format?.defaultRowHeight || DEFAULT_HEIGHT_PT) * zoom;
   const headerHeight = ptPx(format?.headerHeight || 30) * zoom;
@@ -252,9 +257,58 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, sheets = [], onShe
     }
   }
 
+  // Formatting is allowed where editing is, formula cells included (only their value is protected)
+  const canFormat = (row, i) => grid.editable && !!onFormatCell && !row.inherited.includes(i);
+  const selectedFormattable = !!current && !!currentCol && canFormat(current, currentCol.index);
+
+  async function applyFormat(changes) {
+    if (!current || !currentCol || saving) return;
+    if (!selectedFormattable) {
+      setStatus(current.inherited.includes(currentCol.index)
+        ? `${address} is carried down from a row above. Format it on the row where it starts.`
+        : `${address} can't be formatted.`, true);
+      return;
+    }
+    const row = current;
+    const col = currentCol.index;
+    const key = cellKey(row.row, col);
+    const cellAddress = `${currentCol.letter}${row.row}`;
+    setSaving(key);
+    setStatus(`Formatting ${cellAddress}…`);
+    try {
+      const result = await onFormatCell({ row, col, format: changes });
+      // Reuse an identical style if there is one, otherwise add the new style
+      const styleKey = JSON.stringify(result.style);
+      let index = styles.findIndex((st) => JSON.stringify(st) === styleKey);
+      if (index === -1) {
+        index = styles.length;
+        setStyles((all) => [...all, result.style]);
+      }
+      setRows((all) => all.map((x) => (x.row !== row.row ? x : {
+        ...x,
+        styles: (x.styles || grid.headers.map(() => null)).map((st, i) => (i === col ? index : st)),
+      })));
+      setStatus(`Formatted ${cellAddress} in Excel`);
+    } catch (err) {
+      setStatus(`${cellAddress}: ${err.message}`, true);
+    } finally {
+      setSaving(null);
+      scrollRef.current?.focus();
+    }
+  }
+
+  const selectedStyle = current && currentCol ? style(current.styles?.[currentCol.index]) : null;
+
   function onKeyDown(e) {
     if (editing) return;
     if (e.key === 'Escape' && expanded) { e.preventDefault(); setExpanded(false); return; }
+    // Excel shortcuts: Ctrl+B / Ctrl+I / Ctrl+U
+    if ((e.ctrlKey || e.metaKey) && onFormatCell && ['b', 'i', 'u'].includes(e.key.toLowerCase())) {
+      e.preventDefault();
+      const prop = { b: 'bold', i: 'italic', u: 'underline' }[e.key.toLowerCase()];
+      applyFormat({ [prop]: !selectedStyle?.[prop] });
+      return;
+    }
     const keys = {
       ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1],
       PageUp: [-10, 0], PageDown: [10, 0],
@@ -293,6 +347,9 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, sheets = [], onShe
         isFull={isFull}
         toggleFullscreen={toggleFullscreen}
       />
+      {onFormatCell && (
+        <SheetRibbon style={selectedStyle} disabled={!selectedFormattable || !!saving || !!editing} onApply={applyFormat} />
+      )}
       <div className="xl-formula">
         <div className="xl-namebox" title="Selected cell">{address}</div>
         <span className="xl-fx" aria-hidden="true">fx</span>

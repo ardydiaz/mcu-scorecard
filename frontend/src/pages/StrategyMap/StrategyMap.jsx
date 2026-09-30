@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAllSheets, useScorecardSheets, useSheetGrid, useStrategyMap, useWorkbook } from '../../hooks/useStrategy';
 import SheetGrid from '../../components/tables/SheetGrid';
-import { updateGridCell } from '../../api/strategyApi';
+import { formatGridCell, updateGridCell } from '../../api/strategyApi';
 import { getErrorMessage } from '../../api/axios';
 import Loader from '../../components/common/Loader';
 import ErrorMessage from '../../components/common/ErrorMessage';
@@ -102,6 +102,21 @@ function SheetView({ sheet, workbook, gridState, sheets, onSheetChange }) {
     }
   }
 
+  // Changes one cell's formatting in the Excel file; returns { style }
+  async function formatCell({ row, col, format }) {
+    try {
+      return await formatGridCell({
+        sheet: grid.sheet,
+        row: row.row,
+        column: grid.headers[col].letter,
+        identity: row.identity,
+        format,
+      });
+    } catch (err) {
+      throw new Error(getErrorMessage(err));
+    }
+  }
+
   return (
     <div className="sheet-view">
       {noDepartment ? (
@@ -117,6 +132,7 @@ function SheetView({ sheet, workbook, gridState, sheets, onSheetChange }) {
             grid={grid}
             docUrl={workbook?.docUrl}
             onSaveCell={saveCell}
+            onFormatCell={formatCell}
             sheets={sheets}
             onSheetChange={onSheetChange}
           />

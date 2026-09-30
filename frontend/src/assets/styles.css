@@ -458,6 +458,97 @@ h1, h2, h3 { margin: 0; line-height: 1.25; }
 }
 .xl-status__msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .xl-status__msg--error { color: #c42b1c; }
+/* Formatting ribbon (Home-tab style) */
+.xl-ribbon {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--xl-chrome-line);
+  background: #fff;
+  font: 13px 'Segoe UI', sans-serif;
+}
+.rb-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+  border-right: 1px solid #e1e1e1;
+}
+.rb-group:last-child { border-right: 0; }
+.rb-sep { width: 1px; height: 18px; margin: 0 4px; background: #e1e1e1; }
+.rb-select {
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid #c8c8c8;
+  border-radius: 3px;
+  background: #fff;
+  color: #222;
+  font: inherit;
+}
+.rb-select--font { width: 150px; }
+.rb-select--size { width: 64px; margin-left: 4px; }
+.rb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: #222;
+  font: inherit;
+  cursor: pointer;
+}
+.rb-btn:hover:not(:disabled) { background: #f0f0f0; border-color: #e0e0e0; }
+.rb-btn--on { background: #d3f0e0 !important; border-color: #9fd3b4 !important; color: var(--xl-green); }
+.rb-btn:disabled, .rb-select:disabled { opacity: 0.4; cursor: default; }
+.rb-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.rb-btn--b { font-weight: 800; font-family: Georgia, serif; font-size: 15px; }
+.rb-btn--i { font-style: italic; font-family: Georgia, serif; font-size: 15px; }
+.rb-btn--u { text-decoration: underline; font-family: Georgia, serif; font-size: 15px; }
+.rb-btn--wide { padding: 0 8px; }
+
+.rb-color { position: relative; }
+.rb-btn--color { flex-direction: column; gap: 1px; padding: 2px 14px 2px 6px; position: relative; }
+.rb-btn--color svg { height: 13px; }
+.rb-letter-a { font-weight: 700; font-family: Georgia, serif; line-height: 1; }
+.rb-swatch-bar { width: 18px; height: 4px; border: 1px solid #bbb; }
+.rb-caret { position: absolute; right: 3px; top: 8px; font-size: 9px; color: #666; }
+.rb-palette {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  padding: 8px;
+  border: 1px solid #c8c8c8;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+.rb-palette__empty {
+  display: block;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 5px;
+  border: 1px solid #e1e1e1;
+  border-radius: 3px;
+  background: #fafafa;
+  color: #222;
+  font: 12px 'Segoe UI', sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+.rb-palette__empty:hover { background: #f0f0f0; }
+.rb-palette__row { display: grid; grid-template-columns: repeat(10, 18px); gap: 3px; margin-bottom: 3px; }
+.rb-swatch { width: 18px; height: 18px; padding: 0; border: 1px solid #d0d0d0; cursor: pointer; }
+.rb-swatch:hover { outline: 2px solid #f0a30a; outline-offset: 0; }
+.rb-swatch--on { outline: 2px solid var(--xl-green); }
+
 /* Bar above the sheet: record count, zoom, full screen */
 .xl-topbar {
   display: flex;

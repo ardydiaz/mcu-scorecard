@@ -36,6 +36,13 @@ export async function updateGridCell({ sheet, row, column, value, previous, iden
   return data;
 }
 
+// Changes one cell's formatting in the Excel file (e.g. { bold: true } or { fillColor: '#FFFF00' }).
+// Returns { style } as the cell now looks.
+export async function formatGridCell({ sheet, row, column, identity, format }) {
+  const { data } = await api.patch('/strategy/grid/format', { sheet, row, column, identity, format });
+  return data;
+}
+
 export async function getStrategyMap({ sheet } = {}) {
   const { data } = await api.get('/strategy/map', { params: { sheet: sheet || undefined } });
   return data;
