@@ -1,4 +1,4 @@
-const { getUsedRange, writeCell } = require('./excel.service');
+const { getUsedRange, writeCell, writeCellFormat } = require('./excel.service');
 const {
   listVisibleSheets,
   findHeaderRow,
@@ -11,7 +11,7 @@ const {
 } = require('./scorecard.service');
 const { DEPARTMENTS, canonicalCode } = require('../config/departments');
 const EditLog = require('../models/EditLog');
-const { getSheetFormat } = require('./format.service');
+const { getSheetFormat, updateCachedStyle } = require('./format.service');
 const logger = require('../utils/logger');
 
 const MAX_CELL_LENGTH = 5000;
@@ -196,12 +196,11 @@ async function getGridForUser(user, { sheet, department, refresh = false } = {})
 }
 
 /**
- * Saves one cell back to Excel. Re-reads the sheet first and refuses the save when:
- * the user's department doesn't lead the row (admins excepted), the row no longer matches
- * what the user loaded, the cell was changed in Excel meanwhile, or the cell is part of a
- * merged block owned by a row above.
+ * Loads one cell for a change (value or format), re-reading the sheet first. Refuses when the
+ * user's department doesn't lead the row (admins excepted), the row no longer matches what the
+ * user loaded, or the cell only shows a value carried down from a row above.
  */
-async function updateCellForUser(user, { sheet, row, column, value, previous = '', identity }) {
+async function loadCellForChange(user, { sheet, row, column, identity }) {
   await requireSheet(sheet);
   const range = await getUsedRange(sheet, { refresh: true });
   const layout = analyzeSheet(range);
@@ -226,6 +225,15 @@ async function updateCellForUser(user, { sheet, row, column, value, previous = '
   if ([...layout.hierarchy, ...layout.kpiColumns].includes(col) && !cells[col]) {
     throw httpError(400, 'This value is carried down from a row above. Edit it on the row where it starts.');
   }
+  return { range, layout, r, col, cells };
+}
+
+/**
+ * Saves one cell value back to Excel, after the checks in loadCellForChange. Also refuses
+ * formula cells and cells changed in Excel since the user loaded them.
+ */
+async function updateCellForUser(user, { sheet, row, column, value, previous = '', identity }) {
+  const { range, layout, r, col, cells } = await loadCellForChange(user, { sheet, row, column, identity });
   if (formulaColumns(layout, range, r).includes(col)) {
     throw httpError(400, `${column}${row} is calculated by an Excel formula and can't be edited here.`);
   }
@@ -263,4 +271,29 @@ async function updateCellForUser(user, { sheet, row, column, value, previous = '
   return { row, column, text, identity: rowIdentity(layout, cells) };
 }
 
-module.exports = { getGridForUser, updateCellForUser };
+/**
+ * Changes one cell's formatting in Excel (font, colors, alignment, wrap), after the same checks
+ * as editing a value. `format` is already validated by the route. Returns the cell's new style.
+ */
+async function formatCellForUser(user, { sheet, row, column, identity, format }) {
+  const { layout, col } = await loadCellForChange(user, { sheet, row, column, identity });
+  const address = `${column}${row}`;
+
+  await writeCellFormat(sheet, address, format);
+  const { before, after } = updateCachedStyle(sheet, row, layout.firstCol + col, format);
+
+  await EditLog.create({
+    userId: user.id,
+    userEmail: user.email,
+    sheet,
+    cell: address,
+    column: `${layout.headers[col].label} (format)`,
+    oldValue: before ? JSON.stringify(before) : null,
+    newValue: JSON.stringify(format),
+  });
+  logger.info(`${user.email} formatted ${sheet}!${address}: ${JSON.stringify(format)}`);
+
+  return { row, column, style: after };
+}
+
+module.exports = { getGridForUser, updateCellForUser, formatCellForUser };

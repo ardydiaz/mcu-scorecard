@@ -42,8 +42,15 @@ async function updateGridCell(req, res) {
   res.json(await gridService.updateCellForUser(user.toJSON(), { sheet, row, column, value, previous, identity }));
 }
 
+// Changes one grid cell's formatting in the Excel file (same permission checks as editing)
+async function formatGridCell(req, res) {
+  const user = await userService.getUserById(req.user.id);
+  const { sheet, row, column, identity, format } = req.body;
+  res.json(await gridService.formatCellForUser(user.toJSON(), { sheet, row, column, identity, format }));
+}
+
 async function getMap(req, res) {
   res.json(await scorecardService.getStrategyMap({ sheet: req.query.sheet, refresh: req.query.refresh === '1' }));
 }
 
-module.exports = { listSheets, getWorkbook, getScorecard, getGrid, updateGridCell, getMap };
+module.exports = { listSheets, getWorkbook, getScorecard, getGrid, updateGridCell, formatGridCell, getMap };

@@ -92,4 +92,43 @@ async function writeCell(sheetName, address, value, { numberFormat } = {}) {
   }
 }
 
-module.exports = { listWorksheets, getUsedRange, getWorkbookInfo, writeCell };
+const H_ALIGN = { general: 'General', left: 'Left', center: 'Center', right: 'Right' };
+const V_ALIGN = { top: 'Top', middle: 'Center', bottom: 'Bottom' };
+
+/**
+ * Changes one cell's formatting. `format` may contain: bold, italic, underline (booleans),
+ * fontName, fontSize, fontColor ("#RRGGBB"), fillColor ("#RRGGBB" or null for no fill),
+ * hAlign (general/left/center/right), vAlign (top/middle/bottom), wrap (boolean).
+ * Graph keeps font, fill and alignment as separate resources, so only the changed ones are sent.
+ */
+async function writeCellFormat(sheetName, address, format) {
+  const client = await getAppGraphClient();
+  const base = `${workbookPath()}/worksheets('${encodeURIComponent(sheetName)}')/range(address='${address}')/format`;
+
+  const font = {};
+  if (format.bold !== undefined) font.bold = format.bold;
+  if (format.italic !== undefined) font.italic = format.italic;
+  if (format.underline !== undefined) font.underline = format.underline ? 'Single' : 'None';
+  if (format.fontName !== undefined) font.name = format.fontName;
+  if (format.fontSize !== undefined) font.size = format.fontSize;
+  if (format.fontColor !== undefined) font.color = format.fontColor || '#000000';
+
+  const alignment = {};
+  if (format.hAlign !== undefined) alignment.horizontalAlignment = H_ALIGN[format.hAlign];
+  if (format.vAlign !== undefined) alignment.verticalAlignment = V_ALIGN[format.vAlign];
+  if (format.wrap !== undefined) alignment.wrapText = format.wrap;
+
+  try {
+    if (Object.keys(font).length) await client.api(`${base}/font`).patch(font);
+    if (format.fillColor === null) await client.api(`${base}/fill/clear`).post({});
+    else if (format.fillColor !== undefined) await client.api(`${base}/fill`).patch({ color: format.fillColor });
+    if (Object.keys(alignment).length) await client.api(base).patch(alignment);
+  } catch (err) {
+    if (err.statusCode === 403) {
+      throw Object.assign(new Error('The app is not allowed to edit the workbook. Its SharePoint site permission must be "write", not "read".'), { status: 503 });
+    }
+    throw explainGraphError(err);
+  }
+}
+
+module.exports = { listWorksheets, getUsedRange, getWorkbookInfo, writeCell, writeCellFormat };

@@ -87,6 +87,7 @@ function describeSheet(ws, theme) {
       color: resolveColor(font.color, theme),
       bold: !!font.bold,
       italic: !!font.italic,
+      underline: !!font.underline && font.underline !== 'none',
       size: font.size || null,
       font: font.name || null,
       h: a.horizontal || null,
