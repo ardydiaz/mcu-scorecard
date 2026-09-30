@@ -130,6 +130,30 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, sheets = [], onShe
   const [status, setStatusState] = useState({ text: '', error: false });
   const setStatus = (text, error = false) => setStatusState({ text, error });
   const scrollRef = useRef(null);
+  const containerRef = useRef(null);
+  const [fullscreen, setFullscreen] = useState(false); // real browser fullscreen
+  const [expanded, setExpanded] = useState(false); // fallback: fill the browser window
+
+  useEffect(() => {
+    const onChange = () => setFullscreen(document.fullscreenElement === containerRef.current);
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
+
+  async function toggleFullscreen() {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+    } else if (expanded) {
+      setExpanded(false);
+    } else {
+      try {
+        await containerRef.current.requestFullscreen();
+      } catch {
+        setExpanded(true); // Fullscreen API blocked or unsupported
+      }
+    }
+    scrollRef.current?.focus();
+  }
 
   useEffect(() => {
     setRows(grid.rows);
@@ -223,6 +247,7 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, sheets = [], onShe
 
   function onKeyDown(e) {
     if (editing) return;
+    if (e.key === 'Escape' && expanded) { e.preventDefault(); setExpanded(false); return; }
     const keys = {
       ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1],
       PageUp: [-10, 0], PageDown: [10, 0],
@@ -247,8 +272,17 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, sheets = [], onShe
     ? `${grid.rows.length} of ${grid.totalRows} records found (Lead contains ${grid.viewingDepartments.join(', ')})`
     : `${grid.totalRows} rows`;
 
+  const isFull = fullscreen || expanded;
+
   return (
-    <div className="xl">
+    <div ref={containerRef} className={expanded ? 'xl xl--expanded' : 'xl'}>
+      <SheetTopBar
+        filterSummary={filterSummary}
+        zoomPct={zoomPct}
+        setZoomPct={setZoomPct}
+        isFull={isFull}
+        toggleFullscreen={toggleFullscreen}
+      />
       <div className="xl-formula">
         <div className="xl-namebox" title="Selected cell">{address}</div>
         <span className="xl-fx" aria-hidden="true">fx</span>
@@ -372,13 +406,34 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, sheets = [], onShe
         <span className={status.error ? 'xl-status__msg xl-status__msg--error' : 'xl-status__msg'}>
           {status.text || 'Ready'}
         </span>
-        <span className="xl-status__filter">{filterSummary}</span>
-        <span className="xl-zoom">
-          <button type="button" onClick={() => setZoomPct((z) => ZOOM_STEPS[Math.max(0, ZOOM_STEPS.indexOf(z) - 1)] ?? z)} aria-label="Zoom out">−</button>
-          <span>{zoomPct}%</span>
-          <button type="button" onClick={() => setZoomPct((z) => ZOOM_STEPS[Math.min(ZOOM_STEPS.length - 1, ZOOM_STEPS.indexOf(z) + 1)] ?? z)} aria-label="Zoom in">+</button>
-        </span>
       </div>
+    </div>
+  );
+}
+
+// Record count, zoom and full-screen controls shown above the sheet
+function SheetTopBar({ filterSummary, zoomPct, setZoomPct, isFull, toggleFullscreen }) {
+  return (
+    <div className="xl-topbar">
+      <span className="xl-topbar__filter">{filterSummary}</span>
+      <span className="xl-zoom">
+        <button type="button" onClick={() => setZoomPct((z) => ZOOM_STEPS[Math.max(0, ZOOM_STEPS.indexOf(z) - 1)] ?? z)} aria-label="Zoom out">−</button>
+        <span>{zoomPct}%</span>
+        <button type="button" onClick={() => setZoomPct((z) => ZOOM_STEPS[Math.min(ZOOM_STEPS.length - 1, ZOOM_STEPS.indexOf(z) + 1)] ?? z)} aria-label="Zoom in">+</button>
+      </span>
+      <button
+        type="button"
+        className="xl-fullscreen"
+        onClick={toggleFullscreen}
+        title={isFull ? 'Exit full screen (Esc)' : 'Full screen'}
+      >
+        {isFull ? (
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 1v5H1M10 1v5h5M6 15v-5H1M10 15v-5h5" fill="none" stroke="currentColor" strokeWidth="1.5" /></svg>
+        ) : (
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 6V1h5M15 6V1h-5M1 10v5h5M15 10v5h-5" fill="none" stroke="currentColor" strokeWidth="1.5" /></svg>
+        )}
+        <span>{isFull ? 'Exit full screen' : 'Full screen'}</span>
+      </button>
     </div>
   );
 }
