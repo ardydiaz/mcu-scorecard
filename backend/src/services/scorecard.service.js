@@ -240,8 +240,9 @@ function collectDepartments(scorecard) {
   return [...known, ...others];
 }
 
-// Filters on the Lead column only: keeps KPIs led by one of `codes` (with all their
-// projects), plus any project led by `codes` under other KPIs. Empty groups are dropped.
+// Strict Lead filter, like Excel's "Lead contains <code>": only KPIs and projects whose own Lead
+// includes one of `codes` are kept. A KPI led by another department stays only as the parent of
+// matching projects, flagged `contextOnly` so it isn't shown or counted as the department's KPI.
 function filterByDepartments(scorecard, codes) {
   const wanted = new Set(codes);
   const matches = (item) => item.lead.some((c) => wanted.has(c));
@@ -253,8 +254,8 @@ function filterByDepartments(scorecard, codes) {
       kras: o.kras.map((k) => ({
         ...k,
         kpis: k.kpis
-          .map((kpi) => (matches(kpi) ? kpi : { ...kpi, projects: kpi.projects.filter(matches) }))
-          .filter((kpi) => matches(kpi) || kpi.projects.length),
+          .map((kpi) => ({ ...kpi, contextOnly: !matches(kpi), projects: kpi.projects.filter(matches) }))
+          .filter((kpi) => !kpi.contextOnly || kpi.projects.length),
       })).filter((k) => k.kpis.length),
     })).filter((o) => o.kras.length),
   })).filter((p) => p.objectives.length);
@@ -267,7 +268,7 @@ function countItems(scorecard) {
   let projects = 0;
   for (const p of scorecard.perspectives) for (const o of p.objectives) for (const k of o.kras) {
     for (const kpi of k.kpis) {
-      if (kpi.name) kpis++;
+      if (kpi.name && !kpi.contextOnly) kpis++;
       projects += kpi.projects.length;
     }
   }
