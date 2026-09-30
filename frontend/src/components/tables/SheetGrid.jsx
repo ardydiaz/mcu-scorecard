@@ -196,6 +196,13 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, sheets = [], onShe
     el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [sel]);
 
+  // Is the selected cell's text cut off by the row height / column width? Then it pops out in full.
+  const [clipped, setClipped] = useState(false);
+  useEffect(() => {
+    const clip = scrollRef.current?.querySelector(`[data-cell="${sel.r}-${sel.c}"] .xl-clip`);
+    setClipped(!!clip && (clip.scrollHeight > clip.clientHeight + 1 || clip.scrollWidth > clip.clientWidth + 1));
+  }, [sel, rows, zoom]);
+
   function startEdit(initialOverride) {
     if (!current || !currentCol) return;
     if (isReadOnly(current, currentCol.index)) {
@@ -268,9 +275,12 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, sheets = [], onShe
   }
 
   const formulaText = editing ? draft : current && currentCol ? current.cells[currentCol.index] : '';
+  const count = grid.totalRows > grid.rows.length
+    ? `${grid.rows.length} of ${grid.totalRows} records found`
+    : `${grid.rows.length} rows`;
   const filterSummary = grid.viewingDepartments.length
-    ? `${grid.rows.length} of ${grid.totalRows} records found (Lead contains ${grid.viewingDepartments.join(', ')})`
-    : `${grid.totalRows} rows`;
+    ? `${count} (Lead contains ${grid.viewingDepartments.join(', ')})`
+    : count;
 
   const isFull = fullscreen || expanded;
 
@@ -335,7 +345,7 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, sheets = [], onShe
                   <th className={r === sel.r ? 'xl-rownum xl-rownum--sel' : 'xl-rownum'}>
                     {docUrl ? (
                       <a
-                        href={excelUrl(docUrl, { sheet: grid.sheet, cell: `${grid.leadColumn}${row.row}` })}
+                        href={excelUrl(docUrl, { sheet: grid.excelSheet || grid.sheet, cell: row.linkCell || `${grid.leadColumn}${row.row}` })}
                         target={EXCEL_WINDOW}
                         rel="noreferrer"
                         title={`Open row ${row.row} in Excel`}
@@ -364,6 +374,9 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, sheets = [], onShe
                         onDoubleClick={() => startEdit()}
                       >
                         <div className="xl-clip" style={{ maxHeight: height }}>{row.cells[i]}</div>
+                        {selected && !editing && clipped && (
+                          <div className="xl-peek" role="tooltip">{row.cells[i]}</div>
+                        )}
                         {selected && editing && (
                           <CellEditor
                             initial={editing.initial}

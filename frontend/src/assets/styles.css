@@ -232,16 +232,6 @@ h1, h2, h3 { margin: 0; line-height: 1.25; }
 .link-list li { padding: 10px 0; border-bottom: 1px solid var(--border); }
 .link-list li:last-child { border-bottom: 0; }
 
-/* Table */
-.table-wrap__search { margin-bottom: 12px; width: 100%; max-width: 320px; }
-.table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
-.table { width: 100%; border-collapse: collapse; font-size: 14px; }
-.table th, .table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
-.table th { background: var(--surface-2); font-weight: 600; white-space: nowrap; }
-.table tbody tr:last-child td { border-bottom: 0; }
-.table tbody tr:hover { background: var(--surface-2); }
-.table__empty { text-align: center; color: var(--muted); }
-
 /* Excel-like sheet (SheetGrid). The sheet canvas stays light in dark mode, as it does in Excel. */
 .sheet-view { display: flex; flex-direction: column; gap: 12px; }
 .sheet-view__help { font-size: 12px; margin: 0; }
@@ -313,12 +303,35 @@ h1, h2, h3 { margin: 0; line-height: 1.25; }
 .xl-cell {
   position: relative;
   padding: 1px 4px;
-  overflow: hidden;
+  /* Text is clipped by .xl-clip; the cell itself stays open so the pop-out and editor can extend past it */
+  overflow: visible;
   scroll-margin-top: var(--xl-head);
   scroll-margin-left: 44px;
   cursor: cell;
 }
 .xl-clip { overflow: hidden; }
+
+/* Full text of a selected cell whose content is cut off */
+.xl-peek {
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  z-index: 6;
+  min-width: calc(100% + 2px);
+  width: max-content;
+  max-width: min(520px, 80vw);
+  max-height: 320px;
+  overflow: auto;
+  padding: 4px 6px;
+  border: 2px solid var(--xl-green);
+  background: #fff;
+  color: #000;
+  font-style: normal;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  cursor: text;
+}
 .xl-cell--inherited { color: #8a8a8a !important; font-style: italic !important; }
 .xl-cell--sel { outline: 2px solid var(--xl-green); outline-offset: -2px; z-index: 1; }
 .xl-cell--saving { opacity: 0.55; }
@@ -556,9 +569,6 @@ kbd {
 .segmented__btn + .segmented__btn { border-left: 1px solid var(--border); }
 .segmented__btn--active { background: var(--primary); color: #fff; font-weight: 600; }
 
-.kpi__actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
-.edit-link { font-size: 12px; font-weight: 600; white-space: nowrap; text-decoration: none; }
-.edit-link:hover { text-decoration: underline; }
 a.btn { text-decoration: none; }
 
 /* Page heading & toolbar */
@@ -567,91 +577,6 @@ a.btn { text-decoration: none; }
 .toolbar__search { flex: 1; min-width: 200px; max-width: 360px; }
 .alert--info { background: var(--primary-soft); color: var(--text); }
 .stat__value--text { font-size: 18px; line-height: 1.6; }
-
-/* Department badges: lead solid, support outlined, viewer's own highlighted */
-.dept-badges { display: inline-flex; flex-wrap: wrap; gap: 4px; flex-shrink: 0; }
-.dept {
-  padding: 1px 7px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  border: 1px solid var(--primary);
-}
-.dept--lead { background: var(--primary); color: #fff; }
-.dept--support { background: transparent; color: var(--primary); }
-.dept--mine { outline: 2px solid var(--highlight); outline-offset: 1px; }
-
-/* Scorecard hierarchy */
-.perspective { display: flex; flex-direction: column; gap: 14px; }
-.perspective__title {
-  font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--primary);
-  padding-bottom: 6px;
-  border-bottom: 2px solid var(--primary);
-}
-.objective {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-}
-.objective__summary {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 14px 20px;
-  cursor: pointer;
-  list-style: none;
-}
-.objective__summary::-webkit-details-marker { display: none; }
-.objective__summary::before { content: '▸'; color: var(--muted); transition: transform 0.15s; }
-.objective[open] > .objective__summary::before { transform: rotate(90deg); }
-.objective__label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
-.objective__name { font-size: 17px; font-weight: 700; }
-.kra { padding: 0 20px 18px; }
-.kra__title { font-size: 14px; color: var(--muted); margin: 6px 0 10px; font-weight: 600; }
-.kra__kpis { display: flex; flex-direction: column; gap: 12px; }
-
-.kpi {
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--primary);
-  border-radius: 8px;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.kpi__header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-.kpi__title-wrap { min-width: 0; }
-.kpi__title { font-size: 15px; white-space: pre-line; }
-.kpi__policy { margin: 2px 0 0; color: var(--muted); font-size: 13px; font-style: italic; }
-
-.targets { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
-.targets__item { background: var(--surface-2); border-radius: 6px; padding: 4px 10px; }
-.targets__item dt { font-size: 11px; color: var(--muted); }
-.targets__item dd { margin: 0; font-size: 14px; font-weight: 600; white-space: pre-line; }
-
-.status { font-size: 14px; }
-.status--empty { color: var(--muted); font-style: italic; margin: 0; font-size: 13px; }
-.status__latest { margin: 0; display: flex; flex-direction: column; gap: 2px; }
-.status__label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.status__text { white-space: pre-line; overflow-wrap: anywhere; }
-.status__history { margin-top: 6px; }
-.status__history summary { cursor: pointer; color: var(--primary); font-size: 13px; }
-.status__history ul { list-style: none; margin: 8px 0 0; padding: 0 0 0 12px; border-left: 2px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
-.status__history li { display: flex; flex-direction: column; gap: 2px; }
-
-.note { margin: 0; font-size: 13px; color: var(--muted); white-space: pre-line; }
-
-.projects { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.project { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
-.project__header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-.project__name { font-weight: 600; font-size: 14px; white-space: pre-line; }
-.project__meta { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); }
-.project__meta:empty { display: none; }
 
 /* Profile */
 .profile { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
@@ -676,11 +601,7 @@ a.btn { text-decoration: none; }
   .header__menu { display: block; }
   .header__name { display: none; }
   .layout__content { padding: 16px; }
-  .kpi__header, .project__header { flex-direction: column; gap: 6px; }
-  .kra { padding: 0 12px 14px; }
-  .objective__summary { padding: 12px; }
   .toolbar__search { max-width: none; }
-  .kpi__actions { justify-content: flex-start; }
   .excel-launch { flex-direction: column; padding: 20px; }
   .details__row { grid-template-columns: 1fr; gap: 2px; }
 }
