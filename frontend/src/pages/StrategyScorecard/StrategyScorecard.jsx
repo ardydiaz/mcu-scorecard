@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useScorecard, useScorecardSheets, useWorkbook } from '../../hooks/useStrategy';
+import { useScorecard, useScorecardSheets } from '../../hooks/useStrategy';
 import { buildSheet } from '../../utils/sheetBuilder';
 import SheetGrid from '../../components/tables/SheetGrid';
 import Loader from '../../components/common/Loader';
@@ -118,10 +118,8 @@ export default function StrategyScorecard() {
   const [query, setQuery] = useState('');
 
   const sheets = useScorecardSheets();
-  const workbook = useWorkbook();
   const { data, loading, error, reload } = useScorecard({ sheet, department });
 
-  const docUrl = workbook.data?.docUrl;
   const perspectives = useMemo(() => (data ? searchScorecard(data.perspectives, query) : []), [data, query]);
   const report = useMemo(() => (data ? reportSheet(data, perspectives) : null), [data, perspectives]);
 
@@ -191,10 +189,10 @@ export default function StrategyScorecard() {
 
       {!loading && report && perspectives.length > 0 && (
         <div className="sheet-view">
-          <SheetGrid grid={report} docUrl={docUrl} />
+          <SheetGrid grid={report} />
           <p className="muted sheet-view__help">
             Read-only report with each KPI and project's latest update; select a cell to see its full text in the formula
-            bar. Row numbers are the rows in “{data.sheet}” and open that row in Excel. To edit, use Strategy Map → Excel.
+            bar. Row numbers are the rows in “{data.sheet}”. To edit, use Strategy Map → Excel.
           </p>
         </div>
       )}

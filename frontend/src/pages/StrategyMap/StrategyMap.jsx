@@ -153,7 +153,6 @@ function SheetView({ sheet, workbook, gridState, sheets, onSheetChange }) {
         <>
           <SheetGrid
             grid={grid}
-            docUrl={workbook?.docUrl}
             onSaveCell={saveCell}
             onFormatCell={formatCell}
             onMergeCells={mergeCells}
@@ -162,8 +161,8 @@ function SheetView({ sheet, workbook, gridState, sheets, onSheetChange }) {
           />
           <p className="muted sheet-view__help">
             Double-click, press <kbd>F2</kbd> or start typing to edit. <kbd>Enter</kbd> saves to the Excel file,
-            <kbd>Alt</kbd>+<kbd>Enter</kbd> adds a line break, <kbd>Esc</kbd> cancels. Grey italic values are carried down
-            from the row where they start. Row numbers open that row in Excel.
+            <kbd>Alt</kbd>+<kbd>Enter</kbd> adds a line break, <kbd>Esc</kbd> cancels. Click a row number or column letter
+            to select it; <kbd>Shift</kbd>+click to select more. Grey italic values are carried down from the row where they start.
           </p>
         </>
       )}

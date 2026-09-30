@@ -1,8 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { excelUrl } from '../../utils/excelLinks';
-import { EXCEL_WINDOW } from '../common/ExcelEmbed';
 import SheetRibbon from './SheetRibbon';
-import { logActivity } from '../../api/auditApi';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const ZOOM_STEPS = [50, 60, 70, 80, 90, 100, 110, 125, 150];
@@ -120,7 +117,7 @@ function CellEditor({ initial, isDate, minHeight, onCommit, onCancel, onDraftCha
  * a status bar. `onSaveCell` writes an edit to the Excel file and returns { text, identity }.
  * Carried-down values (grey italics) and formula cells are read-only.
  */
-export default function SheetGrid({ grid, docUrl, onSaveCell, onFormatCell, onMergeCells, sheets = [], onSheetChange }) {
+export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells, sheets = [], onSheetChange }) {
   const format = grid.format;
   const [zoomPct, setZoomPct] = useState(() => readZoom(format?.zoom || 100));
   const zoom = zoomPct / 100;
@@ -228,6 +225,24 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, onFormatCell, onMe
   const address = !current || !currentCol ? ''
     : isRange ? `${cols[range.c1].letter}${rows[range.r1].row}:${cols[range.c2].letter}${rows[range.r2].row}`
       : `${currentCol.letter}${current.row}`;
+
+  // Like Excel: a row number selects the whole row, a column letter the whole column; with Shift
+  // the selection grows from where it started. (The grid shows only the rows in the Lead filter.)
+  function selectRows(r, extend) {
+    if (editing) return;
+    const startRow = extend && anchor ? anchor.r : extend ? sel.r : r;
+    setAnchor({ r: startRow, c: 0 });
+    setSel({ r, c: cols.length - 1 });
+    scrollRef.current?.focus();
+  }
+
+  function selectColumns(c, extend) {
+    if (editing) return;
+    const startCol = extend && anchor ? anchor.c : extend ? sel.c : c;
+    setAnchor({ r: 0, c: startCol });
+    setSel({ r: rows.length - 1, c });
+    scrollRef.current?.focus();
+  }
 
   // Arrow keys step over merged areas; `extend` (Shift) grows the selected range instead
   function move(dr, dc, extend = false) {
@@ -545,7 +560,14 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, onFormatCell, onMe
             <tr className="xl-letters">
               <th className="xl-corner" />
               {cols.map((h, c) => (
-                <th key={h.letter} className={selCols.has(c) ? 'xl-letter xl-letter--sel' : 'xl-letter'}>{h.letter}</th>
+                <th
+                  key={h.letter}
+                  className={selCols.has(c) ? 'xl-letter xl-letter--sel' : 'xl-letter'}
+                  title={`Select column ${h.letter} (Shift+click to select several columns)`}
+                  onMouseDown={(e) => selectColumns(c, e.shiftKey)}
+                >
+                  {h.letter}
+                </th>
               ))}
             </tr>
             <tr className="xl-headrow" style={{ height: headerHeight }}>
@@ -566,18 +588,12 @@ export default function SheetGrid({ grid, docUrl, onSaveCell, onFormatCell, onMe
               const height = rowHeightOf(row);
               return (
                 <tr key={row.row} style={{ height }}>
-                  <th className={r >= rowFrom && r <= rowTo ? 'xl-rownum xl-rownum--sel' : 'xl-rownum'}>
-                    {docUrl ? (
-                      <a
-                        href={excelUrl(docUrl, { sheet: grid.excelSheet || grid.sheet, cell: row.linkCell || `${grid.leadColumn}${row.row}` })}
-                        target={EXCEL_WINDOW}
-                        rel="noreferrer"
-                        title={`Open row ${row.row} in Excel`}
-                        onClick={() => logActivity('excel.open', `${grid.excelSheet || grid.sheet}!${row.linkCell || `${grid.leadColumn}${row.row}`}`)}
-                      >
-                        {row.row}
-                      </a>
-                    ) : row.row}
+                  <th
+                    className={r >= rowFrom && r <= rowTo ? 'xl-rownum xl-rownum--sel' : 'xl-rownum'}
+                    title={`Select row ${row.row} (Shift+click to select several rows)`}
+                    onMouseDown={(e) => selectRows(r, e.shiftKey)}
+                  >
+                    {row.row}
                   </th>
                   {cols.map((h, c) => {
                     // Cells covered by a merged area aren't drawn; its top-left cell spans them

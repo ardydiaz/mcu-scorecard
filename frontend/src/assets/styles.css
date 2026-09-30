@@ -375,8 +375,9 @@ h1, h2, h3 { margin: 0; line-height: 1.25; }
   vertical-align: top;
   padding-top: 2px;
 }
-.xl-rownum a { color: inherit; text-decoration: none; }
-.xl-rownum a:hover { color: var(--xl-green); text-decoration: underline; }
+/* Clicking a row number / column letter selects the whole row / column, like Excel */
+.xl-rownum:not(.xl-rownum--head), .xl-letter { cursor: pointer; user-select: none; }
+.xl-rownum:not(.xl-rownum--head):hover, .xl-letter:hover { background: #e6e6e6; }
 
 /* Header row (row 1 of the sheet), frozen like in the workbook */
 .xl-headrow th { position: sticky; top: 21px; z-index: 2; }
