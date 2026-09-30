@@ -1,0 +1,112 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import AuthContext from '../context/AuthContext';
+import { getMe, loginWithMicrosoft } from '../api/authApi';
+import { getErrorMessage, UNAUTHORIZED_EVENT } from '../api/axios';
+import {
+  clearToken,
+  getMicrosoftIdTokenSilently,
+  getToken,
+  isTokenExpired,
+  setToken,
+  signInWithMicrosoft,
+  signOutOfMicrosoft,
+} from './authService';
+
+// redirectResult / redirectError come from MSAL's handleRedirectPromise in main.jsx
+export default function AuthProvider({ redirectResult, redirectError, children }) {
+  const navigate = useNavigate();
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [signingIn, setSigningIn] = useState(false);
+  const [error, setError] = useState(redirectError ? redirectError.errorMessage || redirectError.message : '');
+  const started = useRef(false);
+
+  // Clears only this app's session (the Microsoft session stays)
+  const clearSession = useCallback(() => {
+    clearToken();
+    setUser(null);
+  }, []);
+
+  const loadUser = useCallback(async () => {
+    const token = getToken();
+    if (!token || isTokenExpired(token)) {
+      clearSession();
+      return null;
+    }
+    try {
+      const me = await getMe();
+      setUser(me);
+      return me;
+    } catch {
+      clearSession();
+      return null;
+    }
+  }, [clearSession]);
+
+  // Microsoft ID token -> POST /api/auth/microsoft -> app JWT -> user profile
+  const exchangeToken = useCallback(async (idToken, returnTo) => {
+    setError('');
+    try {
+      const { token } = await loginWithMicrosoft(idToken);
+      setToken(token);
+      await loadUser();
+      navigate(returnTo || '/dashboard', { replace: true });
+    } catch (err) {
+      clearSession();
+      setError(getErrorMessage(err));
+    }
+  }, [clearSession, loadUser, navigate]);
+
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+
+    const task = redirectResult?.idToken
+      ? exchangeToken(redirectResult.idToken, redirectResult.state)
+      : loadUser();
+    task.finally(() => setLoading(false));
+  }, [redirectResult, exchangeToken, loadUser]);
+
+  // The axios client fires this when the API rejects the app JWT
+  useEffect(() => {
+    window.addEventListener(UNAUTHORIZED_EVENT, clearSession);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, clearSession);
+  }, [clearSession]);
+
+  // Reuses an existing Microsoft session when possible, otherwise redirects to Microsoft
+  const login = useCallback(async (returnTo = '/dashboard') => {
+    setSigningIn(true);
+    setError('');
+    try {
+      const idToken = await getMicrosoftIdTokenSilently();
+      if (idToken) {
+        await exchangeToken(idToken, returnTo);
+        setSigningIn(false);
+      } else {
+        await signInWithMicrosoft(returnTo); // page navigates away to Microsoft
+      }
+    } catch (err) {
+      setError(err.errorMessage || err.message);
+      setSigningIn(false);
+    }
+  }, [exchangeToken]);
+
+  const logout = useCallback(() => {
+    clearSession();
+    signOutOfMicrosoft();
+  }, [clearSession]);
+
+  const value = useMemo(() => ({
+    user,
+    loading,
+    signingIn,
+    error,
+    isAuthenticated: Boolean(user),
+    login,
+    logout,
+    refreshUser: loadUser,
+  }), [user, loading, signingIn, error, login, logout, loadUser]);
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
