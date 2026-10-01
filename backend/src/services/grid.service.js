@@ -98,9 +98,10 @@ function hierarchyByRow(layout, range) {
   return out;
 }
 
-// What access rules match on for sheet row r (see access.service ruleMatches)
-function rowFacts(sheet, layout, range, r, hierarchy, cells = rowCells(layout, range, r)) {
+// What access rules match on for sheet row r of file `wb` (see access.service ruleMatches)
+function rowFacts(wb, sheet, layout, range, r, hierarchy, cells = rowCells(layout, range, r)) {
   return {
+    workbookId: wb.id,
     sheet,
     lead: parseCodes(cells[layout.columns.lead]),
     support: parseCodes(cells[layout.columns.support]),
@@ -136,9 +137,9 @@ function rowIdentity(layout, cells) {
   };
 }
 
-async function requireSheet(sheet) {
-  const sheets = await listVisibleSheets();
-  if (!sheets.some((s) => s.name === sheet)) throw httpError(404, `Sheet "${sheet}" not found.`);
+async function requireSheet(wb, sheet) {
+  const sheets = await listVisibleSheets(wb);
+  if (!sheets.some((s) => s.name === sheet)) throw httpError(404, `Sheet "${sheet}" not found in "${wb.name}".`);
 }
 
 /**
@@ -149,9 +150,9 @@ async function requireSheet(sheet) {
  * Perspective/Objective/KRA (and the KPI for project rows) are only filled in on the first row of
  * each group, so they are carried down onto filtered rows and flagged as `inherited`.
  */
-async function getGridForUser(user, { sheet, department, refresh = false } = {}) {
-  await requireSheet(sheet);
-  const [range, format] = await Promise.all([getUsedRange(sheet, { refresh }), getSheetFormat(sheet)]);
+async function getGridForUser(wb, user, { sheet, department, refresh = false } = {}) {
+  await requireSheet(wb, sheet);
+  const [range, format] = await Promise.all([getUsedRange(wb, sheet, { refresh }), getSheetFormat(wb, sheet)]);
   const layout = analyzeSheet(range);
   if (!layout) return { sheet, supported: false };
 
@@ -183,7 +184,7 @@ async function getGridForUser(user, { sheet, department, refresh = false } = {})
     if (isKpiRow) kpiColumns.forEach((k) => { carried[k] = cells[k]; });
 
     lead.forEach((c) => leadCodes.add(c));
-    const facts = rowFacts(sheet, layout, range, r, levels, cells);
+    const facts = rowFacts(wb, sheet, layout, range, r, levels, cells);
     if (!rowVisible(access, facts)) continue;
 
     const identity = rowIdentity(layout, cells);
@@ -236,6 +237,7 @@ async function getGridForUser(user, { sheet, department, refresh = false } = {})
   }
 
   return {
+    workbookId: wb.id,
     sheet,
     supported: true,
     format: styled || null,
@@ -259,9 +261,9 @@ async function getGridForUser(user, { sheet, department, refresh = false } = {})
  * user's department doesn't lead the row (admins excepted), the row no longer matches what the
  * user loaded, or the cell only shows a value carried down from a row above.
  */
-async function loadCellForChange(user, { sheet, row, column, identity }) {
-  await requireSheet(sheet);
-  const range = await getUsedRange(sheet, { refresh: true });
+async function loadCellForChange(wb, user, { sheet, row, column, identity }) {
+  await requireSheet(wb, sheet);
+  const range = await getUsedRange(wb, sheet, { refresh: true });
   const layout = analyzeSheet(range);
   if (!layout) throw httpError(422, `"${sheet}" can't be edited here.`);
 
@@ -271,7 +273,7 @@ async function loadCellForChange(user, { sheet, row, column, identity }) {
   if (col < 0 || col >= layout.headers.length) throw httpError(400, `Column ${column} can't be edited.`);
 
   const cells = rowCells(layout, range, r);
-  const facts = rowFacts(sheet, layout, range, r, hierarchyByRow(layout, range), cells);
+  const facts = rowFacts(wb, sheet, layout, range, r, hierarchyByRow(layout, range), cells);
   if (!rowAccess(accessFor(user), facts).edit) {
     throw httpError(403, 'You can only edit rows that your department leads.');
   }
@@ -290,8 +292,8 @@ async function loadCellForChange(user, { sheet, row, column, identity }) {
  * Saves one cell value back to Excel, after the checks in loadCellForChange. Also refuses
  * formula cells and cells changed in Excel since the user loaded them.
  */
-async function updateCellForUser(user, { sheet, row, column, value, previous = '', identity }) {
-  const { range, layout, r, col, cells } = await loadCellForChange(user, { sheet, row, column, identity });
+async function updateCellForUser(wb, user, { sheet, row, column, value, previous = '', identity }) {
+  const { range, layout, r, col, cells } = await loadCellForChange(wb, user, { sheet, row, column, identity });
   if (formulaColumns(layout, range, r).includes(col)) {
     throw httpError(400, `${column}${row} is calculated by an Excel formula and can't be edited here.`);
   }
@@ -311,9 +313,9 @@ async function updateCellForUser(user, { sheet, row, column, value, previous = '
   }
 
   const address = `${column}${row}`;
-  const text = await writeCell(sheet, address, toWrite, { numberFormat });
-  invalidateScorecard(sheet);
-  logger.info(`${user.email} edited ${sheet}!${address}: "${cells[col]}" -> "${text}"`);
+  const text = await writeCell(wb, sheet, address, toWrite, { numberFormat });
+  invalidateScorecard(wb, sheet);
+  logger.info(`${user.email} edited ${wb.name} / ${sheet}!${address}: "${cells[col]}" -> "${text}"`);
 
   const oldValue = cells[col];
   cells[col] = text;
@@ -323,7 +325,7 @@ async function updateCellForUser(user, { sheet, row, column, value, previous = '
     text,
     identity: rowIdentity(layout, cells),
     // For the audit log (recorded by the controller)
-    change: { target: `${sheet}!${address}`, details: { column: layout.headers[col].label, oldValue, newValue: text } },
+    change: { target: `${sheet}!${address}`, details: { workbook: wb.name, column: layout.headers[col].label, oldValue, newValue: text } },
   };
 }
 
@@ -331,20 +333,20 @@ async function updateCellForUser(user, { sheet, row, column, value, previous = '
  * Changes one cell's formatting in Excel (font, colors, alignment, wrap), after the same checks
  * as editing a value. `format` is already validated by the route. Returns the cell's new style.
  */
-async function formatCellForUser(user, { sheet, row, column, identity, format }) {
-  const { layout, col } = await loadCellForChange(user, { sheet, row, column, identity });
+async function formatCellForUser(wb, user, { sheet, row, column, identity, format }) {
+  const { layout, col } = await loadCellForChange(wb, user, { sheet, row, column, identity });
   const address = `${column}${row}`;
 
-  await writeCellFormat(sheet, address, format);
-  const { after } = updateCachedStyle(sheet, row, layout.firstCol + col, format);
-  logger.info(`${user.email} formatted ${sheet}!${address}: ${JSON.stringify(format)}`);
+  await writeCellFormat(wb, sheet, address, format);
+  const { after } = updateCachedStyle(wb, sheet, row, layout.firstCol + col, format);
+  logger.info(`${user.email} formatted ${wb.name} / ${sheet}!${address}: ${JSON.stringify(format)}`);
 
   return {
     row,
     column,
     style: after,
     // For the audit log (recorded by the controller)
-    change: { target: `${sheet}!${address}`, details: { column: layout.headers[col].label, format } },
+    change: { target: `${sheet}!${address}`, details: { workbook: wb.name, column: layout.headers[col].label, format } },
   };
 }
 
@@ -360,10 +362,10 @@ async function formatCellForUser(user, { sheet, row, column, identity, format })
  *  - values in the cells being merged away are only discarded after the user confirms
  *    (`confirm`); otherwise a 409 with code CONFIRM_MERGE lists them
  */
-async function mergeCellsForUser(user, {
+async function mergeCellsForUser(wb, user, {
   sheet, row, endRow = row, startColumn, endColumn, identities = [], merge = true, center = false, confirm = false,
 }) {
-  const { range, layout, r, col: startCol } = await loadCellForChange(user, { sheet, row, column: startColumn, identity: identities[0] });
+  const { range, layout, r, col: startCol } = await loadCellForChange(wb, user, { sheet, row, column: startColumn, identity: identities[0] });
   const endCol = letterToIndex(endColumn) - layout.firstCol;
   const endR = endRow - layout.firstRow;
   if (endCol < startCol || endCol >= layout.headers.length || endRow < row || endR >= range.values.length) {
@@ -372,7 +374,7 @@ async function mergeCellsForUser(user, {
 
   const absStart = layout.firstCol + startCol + 1; // 1-based, like Excel
   const absEnd = layout.firstCol + endCol + 1;
-  const format = await getSheetFormat(sheet);
+  const format = await getSheetFormat(wb, sheet);
   const overlapping = (format?.merges || []).filter((m) => m.top <= endRow && m.bottom >= row && m.left <= absEnd && m.right >= absStart);
 
   // Every row in the range: editable by this user, and still the row they loaded
@@ -382,7 +384,7 @@ async function mergeCellsForUser(user, {
   for (let rr = r; rr <= endR; rr++) {
     const cells = rowCells(layout, range, rr);
     const rowNumber = layout.firstRow + rr;
-    if (!rowAccess(access, rowFacts(sheet, layout, range, rr, levels, cells)).edit) {
+    if (!rowAccess(access, rowFacts(wb, sheet, layout, range, rr, levels, cells)).edit) {
       throw httpError(403, `You can't edit row ${rowNumber}, so it can't be part of your merge.`);
     }
     const expected = identities[rr - r];
@@ -397,12 +399,12 @@ async function mergeCellsForUser(user, {
     const area = overlapping.find((m) => m.top === row && m.left === absStart);
     if (!area) throw httpError(400, `${startColumn}${row} is not merged.`);
     const areaAddress = `${startColumn}${area.top}:${columnLetter(area.right - 1)}${area.bottom}`;
-    await mergeRange(sheet, areaAddress, { merge: false });
-    updateCachedMerge(sheet, area, false);
-    invalidateScorecard(sheet);
+    await mergeRange(wb, sheet, areaAddress, { merge: false });
+    updateCachedMerge(wb, sheet, area, false);
+    invalidateScorecard(wb, sheet);
     return {
       row, endRow: area.bottom, startColumn, endColumn: columnLetter(area.right - 1), merged: false,
-      change: { target: `${sheet}!${areaAddress}` },
+      change: { target: `${sheet}!${areaAddress}`, details: { workbook: wb.name } },
     };
   }
 
@@ -444,11 +446,11 @@ async function mergeCellsForUser(user, {
     if (endCol > startCol) clear.push({ address: `${layout.headers[startCol + 1].letter}${row}:${endColumn}${row}`, rows: 1, cols: width - 1 });
     if (endRow > row) clear.push({ address: `${startColumn}${row + 1}:${endColumn}${endRow}`, rows: endRow - row, cols: width });
   }
-  await mergeRange(sheet, address, { merge: true, center, clear });
-  updateCachedMerge(sheet, { top: row, bottom: endRow, left: absStart, right: absEnd }, true);
-  const style = center ? updateCachedStyle(sheet, row, layout.firstCol + startCol, { hAlign: 'center' }).after : null;
-  invalidateScorecard(sheet);
-  logger.info(`${user.email} merged ${sheet}!${address}${lost.length ? ` (cleared ${lost.map((l) => l.cell).join(', ')})` : ''}`);
+  await mergeRange(wb, sheet, address, { merge: true, center, clear });
+  updateCachedMerge(wb, sheet, { top: row, bottom: endRow, left: absStart, right: absEnd }, true);
+  const style = center ? updateCachedStyle(wb, sheet, row, layout.firstCol + startCol, { hAlign: 'center' }).after : null;
+  invalidateScorecard(wb, sheet);
+  logger.info(`${user.email} merged ${wb.name} / ${sheet}!${address}${lost.length ? ` (cleared ${lost.map((l) => l.cell).join(', ')})` : ''}`);
 
   return {
     row,
@@ -457,7 +459,7 @@ async function mergeCellsForUser(user, {
     endColumn,
     merged: true,
     style,
-    change: { target: `${sheet}!${address}`, details: { center, ...(lost.length && { deletedValues: lost }) } },
+    change: { target: `${sheet}!${address}`, details: { workbook: wb.name, center, ...(lost.length && { deletedValues: lost }) } },
   };
 }
 

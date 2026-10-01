@@ -18,6 +18,7 @@ router.get('/',
   users.list
 );
 router.post('/sync', authorize('admin'), users.syncFromAzure);
+router.get('/:id/photo', idParam, validate, users.photo);
 router.get('/:id', idParam, validate, users.getById);
 
 router.patch('/:id',

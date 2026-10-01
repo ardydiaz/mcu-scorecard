@@ -30,6 +30,9 @@ const ACTIONS = {
   'access_rule.update': 'Edited access rule',
   'access_rule.delete': 'Deleted access rule',
   'sheet.row_ids_assign': 'Assigned Row IDs',
+  'workbook.status': 'Changed file status',
+  'workbook.default': 'Set default file',
+  'workbook.refresh': 'Checked scorecard folder',
 };
 
 // The only actions the browser may report itself (everything else is recorded by the server)

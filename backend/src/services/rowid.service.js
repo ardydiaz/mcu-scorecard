@@ -14,10 +14,10 @@ function httpError(status, message) {
 }
 
 // `refresh: false` uses the cached copy of the sheet (fine for display, not before writing)
-async function load(sheet, { refresh = true } = {}) {
-  const sheets = await listScorecardSheets();
-  if (!sheets.some((s) => s.name === sheet)) throw httpError(404, `Scorecard sheet "${sheet}" not found.`);
-  const range = await getUsedRange(sheet, { refresh });
+async function load(wb, sheet, { refresh = true } = {}) {
+  const sheets = await listScorecardSheets(wb);
+  if (!sheets.some((s) => s.name === sheet)) throw httpError(404, `Scorecard sheet "${sheet}" not found in "${wb.name}".`);
+  const range = await getUsedRange(wb, sheet, { refresh });
   const layout = analyzeSheet(range);
   if (!layout) throw httpError(422, `"${sheet}" doesn't have the scorecard layout (Perspectives … Lead).`);
   return { range, layout };
@@ -39,8 +39,8 @@ function dataRows(range, layout) {
  * how many rows have an ID, which rows are missing one, and IDs used more than once (usually a
  * copied row in Excel).
  */
-async function getRowIdStatus(sheet) {
-  const { range, layout } = await load(sheet);
+async function getRowIdStatus(wb, sheet) {
+  const { range, layout } = await load(wb, sheet);
   const rows = dataRows(range, layout);
   const seen = new Map();
   for (const x of rows) {
@@ -49,6 +49,7 @@ async function getRowIdStatus(sheet) {
   }
   const width = range.values[0]?.length || 0;
   return {
+    workbookId: wb.id,
     sheet,
     hasColumn: layout.columns.rowId !== undefined,
     column: columnLetter(layout.firstCol + (layout.columns.rowId ?? width)),
@@ -64,8 +65,8 @@ async function getRowIdStatus(sheet) {
  * the hidden "Row ID" column after the last used column the first time. Existing unique IDs are
  * never changed. Only runs when an admin asks for it.
  */
-async function assignRowIds(sheet) {
-  const { range, layout } = await load(sheet);
+async function assignRowIds(wb, sheet) {
+  const { range, layout } = await load(wb, sheet);
   const rows = dataRows(range, layout);
   const headerRowNumber = layout.firstRow + layout.headerRow;
 
@@ -92,22 +93,22 @@ async function assignRowIds(sheet) {
 
   const firstDataR = layout.headerRow + 1;
   const lastR = range.values.length - 1;
-  if (created) await writeRange(sheet, `${letter}${headerRowNumber}`, [[HEADER]]);
+  if (created) await writeRange(wb, sheet, `${letter}${headerRowNumber}`, [[HEADER]]);
   if (assigned || created) {
     const values = [];
     for (let r = firstDataR; r <= lastR; r++) values.push([idFor.get(r) || '']);
-    await writeRange(sheet, `${letter}${layout.firstRow + firstDataR}:${letter}${layout.firstRow + lastR}`, values);
+    await writeRange(wb, sheet, `${letter}${layout.firstRow + firstDataR}:${letter}${layout.firstRow + lastR}`, values);
   }
-  if (created) await setColumnHidden(sheet, letter, true);
-  invalidateScorecard(sheet);
-  logger.info(`Row IDs for ${sheet}: ${assigned} assigned${created ? `, column ${letter} created and hidden` : ''}`);
+  if (created) await setColumnHidden(wb, sheet, letter, true);
+  invalidateScorecard(wb, sheet);
+  logger.info(`Row IDs for ${wb.name} / ${sheet}: ${assigned} assigned${created ? `, column ${letter} created and hidden` : ''}`);
 
-  return { sheet, column: letter, createdColumn: created, assigned, total: rows.length };
+  return { workbookId: wb.id, sheet, column: letter, createdColumn: created, assigned, total: rows.length };
 }
 
 // Rows for the "specific rows" picker: ID, row number, name (project or KPI), Lead and KRA
-async function listRows(sheet, { refresh = true } = {}) {
-  const { range, layout } = await load(sheet, { refresh });
+async function listRows(wb, sheet, { refresh = true } = {}) {
+  const { range, layout } = await load(wb, sheet, { refresh });
   const levels = hierarchyByRow(layout, range);
   const { columns } = layout;
   return dataRows(range, layout)
@@ -124,8 +125,8 @@ async function listRows(sheet, { refresh = true } = {}) {
 }
 
 // Values the rule form offers: Perspectives, Objectives, KRAs, and codes used in Lead / Support
-async function listMatchOptions(sheet) {
-  const { range, layout } = await load(sheet);
+async function listMatchOptions(wb, sheet) {
+  const { range, layout } = await load(wb, sheet);
   const levels = hierarchyByRow(layout, range);
   const sets = { perspective: new Set(), objective: new Set(), kra: new Set(), lead: new Set(), support: new Set() };
   for (const x of dataRows(range, layout)) {

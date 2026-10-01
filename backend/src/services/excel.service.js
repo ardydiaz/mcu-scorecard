@@ -1,12 +1,18 @@
-const env = require('../config/env');
 const { getAppGraphClient } = require('./graph.service');
 
-function workbookPath() {
-  if (!env.excel.driveId || !env.excel.itemId) {
-    throw Object.assign(new Error('EXCEL_DRIVE_ID and EXCEL_ITEM_ID must be set in .env'), { status: 503 });
-  }
-  return `/drives/${env.excel.driveId}/items/${env.excel.itemId}/workbook`;
+/**
+ * Excel reads and writes through Microsoft Graph. Every function takes `wb`, the workbook to use:
+ * { id, driveId, itemId, name } (a row of the workbooks table, see workbook.service).
+ * Caches are kept per workbook and sheet.
+ */
+
+function workbookPath(wb) {
+  if (!wb?.driveId || !wb?.itemId) throw Object.assign(new Error('No Excel workbook selected.'), { status: 503 });
+  return `/drives/${wb.driveId}/items/${wb.itemId}/workbook`;
 }
+
+const sheetPath = (wb, sheetName) => `${workbookPath(wb)}/worksheets('${encodeURIComponent(sheetName)}')`;
+const cacheKey = (wb, sheetName) => `${wb.itemId}::${sheetName}`;
 
 // Turns Graph failures into messages that say what to fix
 function explainGraphError(err) {
@@ -17,9 +23,16 @@ function explainGraphError(err) {
     ), { status: 503 });
   }
   if (err.statusCode === 404) {
-    return Object.assign(new Error('Excel workbook or sheet not found. Check EXCEL_DRIVE_ID, EXCEL_ITEM_ID and the sheet name.'), { status: 404 });
+    return Object.assign(new Error('Excel workbook or sheet not found. It may have been moved, renamed or deleted in SharePoint.'), { status: 404 });
   }
   return err;
+}
+
+function explainWriteError(err) {
+  if (err.statusCode === 403) {
+    return Object.assign(new Error('The app is not allowed to edit the workbook. Its SharePoint site permission must be "write", not "read".'), { status: 503 });
+  }
+  return explainGraphError(err);
 }
 
 async function graphGet(path, select) {
@@ -31,18 +44,19 @@ async function graphGet(path, select) {
   }
 }
 
-async function listWorksheets() {
-  const { value } = await graphGet(`${workbookPath()}/worksheets`, 'id,name,position,visibility');
+async function listWorksheets(wb) {
+  const { value } = await graphGet(`${workbookPath(wb)}/worksheets`, 'id,name,position,visibility');
   return value;
 }
 
 const WORKBOOK_INFO_TTL_MS = 10 * 60 * 1000;
-let workbookInfo = null;
+const workbookInfo = new Map();
 
 // Name and Excel-for-the-web address of the workbook; links are built from `docUrl`
-async function getWorkbookInfo() {
-  if (workbookInfo && Date.now() - workbookInfo.at < WORKBOOK_INFO_TTL_MS) return workbookInfo.data;
-  const item = await graphGet(`/drives/${env.excel.driveId}/items/${env.excel.itemId}`, 'name,webUrl');
+async function getWorkbookInfo(wb) {
+  const hit = workbookInfo.get(wb.itemId);
+  if (hit && Date.now() - hit.at < WORKBOOK_INFO_TTL_MS) return hit.data;
+  const item = await graphGet(`/drives/${wb.driveId}/items/${wb.itemId}`, 'name,webUrl');
 
   // Keep only the document id and file name; the frontend adds action / activeCell
   const url = new URL(item.webUrl);
@@ -52,43 +66,43 @@ async function getWorkbookInfo() {
   }
 
   const data = { name: item.name, webUrl: item.webUrl, docUrl: docUrl.toString() };
-  workbookInfo = { at: Date.now(), data };
+  workbookInfo.set(wb.itemId, { at: Date.now(), data });
   return data;
 }
 
 const RANGE_TTL_MS = 60 * 1000;
 const rangeCache = new Map();
+const forgetRange = (wb, sheetName) => rangeCache.delete(cacheKey(wb, sheetName));
 
 // Returns the sheet's filled area: raw `values` plus `text` (as displayed in Excel, e.g. "Aug-26", "15%").
 // Cached for a minute; `refresh` reads Excel again.
-async function getUsedRange(sheetName, { refresh = false } = {}) {
-  const hit = rangeCache.get(sheetName);
+async function getUsedRange(wb, sheetName, { refresh = false } = {}) {
+  const key = cacheKey(wb, sheetName);
+  const hit = rangeCache.get(key);
   if (!refresh && hit && Date.now() - hit.at < RANGE_TTL_MS) return hit.data;
-  const data = await graphGet(
-    `${workbookPath()}/worksheets('${encodeURIComponent(sheetName)}')/usedRange(valuesOnly=true)`,
-    'address,values,text,formulas'
-  );
-  rangeCache.set(sheetName, { at: Date.now(), data });
+  const data = await graphGet(`${sheetPath(wb, sheetName)}/usedRange(valuesOnly=true)`, 'address,values,text,formulas');
+  rangeCache.set(key, { at: Date.now(), data });
   return data;
+}
+
+// The top-left block of a sheet (first `rows` rows, columns A–BZ): enough to find its header row
+// without downloading the whole sheet
+async function getTopRows(wb, sheetName, rows = 30) {
+  return graphGet(`${sheetPath(wb, sheetName)}/range(address='A1:BZ${rows}')`, 'values,text');
 }
 
 // Writes one cell (e.g. "R130"); `numberFormat` keeps e.g. dates displayed as "mmm-yy".
 // Returns the cell as Excel now displays it.
-async function writeCell(sheetName, address, value, { numberFormat } = {}) {
+async function writeCell(wb, sheetName, address, value, { numberFormat } = {}) {
   const client = await getAppGraphClient();
   const body = { values: [[value]] };
   if (numberFormat) body.numberFormat = [[numberFormat]];
   try {
-    const result = await client
-      .api(`${workbookPath()}/worksheets('${encodeURIComponent(sheetName)}')/range(address='${address}')`)
-      .patch(body);
-    rangeCache.delete(sheetName);
+    const result = await client.api(`${sheetPath(wb, sheetName)}/range(address='${address}')`).patch(body);
+    forgetRange(wb, sheetName);
     return result.text?.[0]?.[0] ?? String(value);
   } catch (err) {
-    if (err.statusCode === 403) {
-      throw Object.assign(new Error('The app is not allowed to edit the workbook. Its SharePoint site permission must be "write", not "read".'), { status: 503 });
-    }
-    throw explainGraphError(err);
+    throw explainWriteError(err);
   }
 }
 
@@ -101,9 +115,9 @@ const V_ALIGN = { top: 'Top', middle: 'Center', bottom: 'Bottom' };
  * hAlign (general/left/center/right), vAlign (top/middle/bottom), wrap (boolean).
  * Graph keeps font, fill and alignment as separate resources, so only the changed ones are sent.
  */
-async function writeCellFormat(sheetName, address, format) {
+async function writeCellFormat(wb, sheetName, address, format) {
   const client = await getAppGraphClient();
-  const base = `${workbookPath()}/worksheets('${encodeURIComponent(sheetName)}')/range(address='${address}')/format`;
+  const base = `${sheetPath(wb, sheetName)}/range(address='${address}')/format`;
 
   const font = {};
   if (format.bold !== undefined) font.bold = format.bold;
@@ -124,10 +138,7 @@ async function writeCellFormat(sheetName, address, format) {
     else if (format.fillColor !== undefined) await client.api(`${base}/fill`).patch({ color: format.fillColor });
     if (Object.keys(alignment).length) await client.api(base).patch(alignment);
   } catch (err) {
-    if (err.statusCode === 403) {
-      throw Object.assign(new Error('The app is not allowed to edit the workbook. Its SharePoint site permission must be "write", not "read".'), { status: 503 });
-    }
-    throw explainGraphError(err);
+    throw explainWriteError(err);
   }
 }
 
@@ -136,52 +147,57 @@ async function writeCellFormat(sheetName, address, format) {
  * ([{ address, rows, cols }]) empties the cells merging would discard, so what Excel keeps is
  * decided here and the kept (top-left) cell is never rewritten. `center` = "Merge & Center".
  */
-async function mergeRange(sheetName, address, { merge, clear = [], center = false }) {
+async function mergeRange(wb, sheetName, address, { merge, clear = [], center = false }) {
   const client = await getAppGraphClient();
-  const sheetPath = `${workbookPath()}/worksheets('${encodeURIComponent(sheetName)}')`;
-  const range = `${sheetPath}/range(address='${address}')`;
+  const sheet = sheetPath(wb, sheetName);
+  const range = `${sheet}/range(address='${address}')`;
   try {
     if (merge) {
       for (const part of clear || []) {
         const blank = Array.from({ length: part.rows }, () => Array(part.cols).fill(''));
-        await client.api(`${sheetPath}/range(address='${part.address}')`).patch({ values: blank });
+        await client.api(`${sheet}/range(address='${part.address}')`).patch({ values: blank });
       }
       await client.api(`${range}/merge`).post({ across: false });
       if (center) await client.api(`${range}/format`).patch({ horizontalAlignment: 'Center' });
     } else {
       await client.api(`${range}/unmerge`).post({});
     }
-    rangeCache.delete(sheetName);
+    forgetRange(wb, sheetName);
   } catch (err) {
-    if (err.statusCode === 403) {
-      throw Object.assign(new Error('The app is not allowed to edit the workbook. Its SharePoint site permission must be "write", not "read".'), { status: 503 });
-    }
-    throw explainGraphError(err);
+    throw explainWriteError(err);
   }
 }
 
 // Writes a block of values (2D array) to a range such as "BT2:BT384"
-async function writeRange(sheetName, address, values) {
+async function writeRange(wb, sheetName, address, values) {
   const client = await getAppGraphClient();
   try {
-    await client.api(`${workbookPath()}/worksheets('${encodeURIComponent(sheetName)}')/range(address='${address}')`).patch({ values });
-    rangeCache.delete(sheetName);
+    await client.api(`${sheetPath(wb, sheetName)}/range(address='${address}')`).patch({ values });
+    forgetRange(wb, sheetName);
   } catch (err) {
-    if (err.statusCode === 403) {
-      throw Object.assign(new Error('The app is not allowed to edit the workbook. Its SharePoint site permission must be "write", not "read".'), { status: 503 });
-    }
-    throw explainGraphError(err);
+    throw explainWriteError(err);
   }
 }
 
 // Hides (or shows) a whole column, e.g. "BT"
-async function setColumnHidden(sheetName, letter, hidden = true) {
+async function setColumnHidden(wb, sheetName, letter, hidden = true) {
   const client = await getAppGraphClient();
   try {
-    await client.api(`${workbookPath()}/worksheets('${encodeURIComponent(sheetName)}')/range(address='${letter}:${letter}')`).patch({ columnHidden: hidden });
+    await client.api(`${sheetPath(wb, sheetName)}/range(address='${letter}:${letter}')`).patch({ columnHidden: hidden });
   } catch (err) {
     throw explainGraphError(err);
   }
 }
 
-module.exports = { listWorksheets, getUsedRange, getWorkbookInfo, writeCell, writeCellFormat, mergeRange, writeRange, setColumnHidden };
+module.exports = {
+  listWorksheets,
+  getUsedRange,
+  getTopRows,
+  getWorkbookInfo,
+  writeCell,
+  writeCellFormat,
+  mergeRange,
+  writeRange,
+  setColumnHidden,
+  explainGraphError,
+};

@@ -6,6 +6,7 @@ const { upsertByAzureOid } = require('./user.service');
 const { signToken } = require('../utils/jwt');
 const { linkUserToM365Department } = require('./department.service');
 const { departmentValue } = require('../config/departments');
+const { refreshAtLogin } = require('./photo.service');
 
 const issuer = `https://login.microsoftonline.com/${env.azure.tenantId}/v2.0`;
 
@@ -65,7 +66,12 @@ async function loginWithMicrosoft(idToken) {
   }
 
   // Only when Graph was read: an unreachable Graph must not change the user's department
-  if (profile.id) await linkUserToM365Department(user, profile.department);
+  if (profile.id) {
+    await linkUserToM365Department(user, profile.department);
+    // Copy their M365 profile photo (waits a few seconds at most; sign-in works without it)
+    await refreshAtLogin(user);
+    await user.reload();
+  }
   const departments = await user.getDepartments();
   const primary = departments.find((d) => d.UserDepartment?.isHead) || departments[0];
 
@@ -76,6 +82,7 @@ async function loginWithMicrosoft(idToken) {
       name: user.displayName,
       department: primary ? primary.code || primary.name : null,
       role: user.role,
+      photoUpdatedAt: user.photoUpdatedAt,
     },
     token: signToken({ id: user.id, email: user.email, role: user.role }),
   };

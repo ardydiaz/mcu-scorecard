@@ -1,5 +1,6 @@
 const userService = require('../services/user.service');
 const syncService = require('../services/sync.service');
+const photoService = require('../services/photo.service');
 const { audit } = require('../services/audit.service');
 
 async function list(req, res) {
@@ -40,4 +41,13 @@ async function syncFromAzure(req, res) {
   res.json(result);
 }
 
-module.exports = { list, getById, update, setDepartments, syncFromAzure };
+// A user's M365 profile photo (any signed-in user may see colleagues' photos, as in Microsoft 365).
+// The URL carries ?v=<photoUpdatedAt>, so the browser may keep it for a day.
+async function photo(req, res) {
+  const saved = await photoService.getPhoto(Number(req.params.id));
+  if (!saved) return res.status(404).json({ message: 'No photo' });
+  res.set({ 'Content-Type': saved.contentType, 'Cache-Control': 'private, max-age=86400' });
+  res.send(saved.data);
+}
+
+module.exports = { list, getById, update, setDepartments, syncFromAzure, photo };

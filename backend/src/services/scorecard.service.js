@@ -1,4 +1,4 @@
-const { listWorksheets, getUsedRange } = require('./excel.service');
+const { listWorksheets, getUsedRange, getTopRows } = require('./excel.service');
 const { departmentOptions, canonicalCode } = require('../config/departments');
 const { accessFor, rowVisible } = require('./access.service');
 
@@ -223,17 +223,21 @@ function parseScorecard(sheetName, range) {
   };
 }
 
-async function loadScorecard(sheetName, { refresh = false } = {}) {
-  const hit = cache.get(sheetName);
+// `wb` is the workbook ({ id, driveId, itemId, name }, see workbook.service); caches are per workbook
+const cacheKey = (wb, sheetName) => `${wb.itemId}::${sheetName}`;
+
+async function loadScorecard(wb, sheetName, { refresh = false } = {}) {
+  const key = cacheKey(wb, sheetName);
+  const hit = cache.get(key);
   if (!refresh && hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.data;
-  const data = parseScorecard(sheetName, await getUsedRange(sheetName, { refresh }));
-  cache.set(sheetName, { at: Date.now(), data });
+  const data = parseScorecard(sheetName, await getUsedRange(wb, sheetName, { refresh }));
+  cache.set(key, { at: Date.now(), data });
   return data;
 }
 
 // Drops the parsed copy of a sheet after it was edited
-function invalidateScorecard(sheetName) {
-  cache.delete(sheetName);
+function invalidateScorecard(wb, sheetName) {
+  cache.delete(cacheKey(wb, sheetName));
 }
 
 // Drops every parsed sheet, e.g. after department aliases changed (Lead codes are resolved when parsing)
@@ -254,8 +258,9 @@ function collectDepartments(scorecard) {
 // Keeps the KPIs and projects the user may see (rowVisible: their Lead rows, access rules, or
 // the view-all Lead dropdown). A KPI the user can't see stays only as the parent of visible
 // projects, flagged `contextOnly` so it isn't shown or counted as theirs.
-function filterByAccess(scorecard, access) {
+function filterByAccess(wb, scorecard, access) {
   const facts = (item, p, o, k) => ({
+    workbookId: wb.id,
     sheet: scorecard.sheet,
     lead: item.lead,
     support: item.support,
@@ -297,24 +302,50 @@ function countItems(scorecard) {
   return { kpis, projects };
 }
 
-// Visible sheets in workbook order; `scorecardOnly` keeps the ones the parser understands
-async function listVisibleSheets({ scorecardOnly = false } = {}) {
-  const sheets = await listWorksheets();
-  return sheets
-    .filter((s) => s.visibility === 'Visible' && (!scorecardOnly || /scorecard/i.test(s.name)))
-    .sort((a, b) => a.position - b.position)
-    .map((s) => ({ id: s.id, name: s.name }));
+const LAYOUT_TTL_MS = 10 * 60 * 1000;
+const layoutCache = new Map(); // "itemId::sheet" -> { at, isScorecard }
+
+// Whether a sheet has the scorecard layout (a header row with Perspectives, KPI and Lead),
+// whatever it's called, e.g. "Sheet1" in a newly uploaded file. Cached for 10 minutes.
+async function hasScorecardLayout(wb, sheetName) {
+  const key = cacheKey(wb, sheetName);
+  const hit = layoutCache.get(key);
+  if (hit && Date.now() - hit.at < LAYOUT_TTL_MS) return hit.isScorecard;
+  let isScorecard = false;
+  try {
+    const { values, text } = await getTopRows(wb, sheetName, HEADER_SEARCH_ROWS);
+    const header = findHeaderRow(values);
+    isScorecard = header !== -1 && mapColumns(values[header], text[header]).columns.lead !== undefined;
+  } catch {
+    isScorecard = false; // unreadable sheet (e.g. a chart sheet): not offered as a scorecard
+  }
+  layoutCache.set(key, { at: Date.now(), isScorecard });
+  return isScorecard;
 }
 
-const listScorecardSheets = () => listVisibleSheets({ scorecardOnly: true });
+// Visible sheets in workbook order; `scorecardOnly` keeps the ones the parser understands:
+// sheets named "…Scorecard…", and any other sheet with the scorecard columns
+async function listVisibleSheets(wb, { scorecardOnly = false } = {}) {
+  const sheets = (await listWorksheets(wb))
+    .filter((s) => s.visibility === 'Visible')
+    .sort((a, b) => a.position - b.position);
+  const keep = scorecardOnly
+    ? await Promise.all(sheets.map((s) => /scorecard/i.test(s.name) || hasScorecardLayout(wb, s.name)))
+    : sheets.map(() => true);
+  return sheets.filter((_, i) => keep[i]).map((s) => ({ id: s.id, name: s.name }));
+}
 
-async function resolveSheet(sheetName) {
-  const sheets = await listScorecardSheets();
+const listScorecardSheets = (wb) => listVisibleSheets(wb, { scorecardOnly: true });
+
+async function resolveSheet(wb, sheetName) {
+  const sheets = await listScorecardSheets(wb);
   if (!sheetName) {
-    if (!sheets.length) throw badRequest('The workbook has no visible scorecard sheets.', 404);
+    if (!sheets.length) {
+      throw badRequest(`"${wb.name}" has no sheet in the scorecard layout (a header row with Perspectives, KPI and Lead), so it can't be shown as a scorecard report. Open it in Strategy Map → Excel instead.`, 404);
+    }
     return sheets[0].name;
   }
-  if (!sheets.some((s) => s.name === sheetName)) throw badRequest(`Scorecard sheet "${sheetName}" not found.`, 404);
+  if (!sheets.some((s) => s.name === sheetName)) throw badRequest(`Scorecard sheet "${sheetName}" not found in "${wb.name}".`, 404);
   return sheetName;
 }
 
@@ -322,14 +353,14 @@ async function resolveSheet(sheetName) {
  * Scorecard as seen by `user`: admins and view-all departments (EXECOM) see everything
  * (optionally narrowed to one department); everyone else sees only rows they lead.
  */
-async function getScorecardForUser(user, { sheet, department, refresh } = {}) {
-  const sheetName = await resolveSheet(sheet);
-  const full = await loadScorecard(sheetName, { refresh });
+async function getScorecardForUser(wb, user, { sheet, department, refresh } = {}) {
+  const sheetName = await resolveSheet(wb, sheet);
+  const full = await loadScorecard(wb, sheetName, { refresh });
   const departments = collectDepartments(full);
   const access = accessFor(user, department);
   const { canViewAll, viewing } = access;
 
-  const visible = canViewAll && !viewing ? full : filterByAccess(full, access);
+  const visible = canViewAll && !viewing && !access.rules.some((r) => r.permission === 'hide') ? full : filterByAccess(wb, full, access);
   return {
     ...visible,
     departments,
@@ -343,9 +374,9 @@ async function getScorecardForUser(user, { sheet, department, refresh } = {}) {
 
 // Institution-wide view: perspectives and objectives with their KRAs and totals,
 // plus the Objective/Target list from the "Strategy Map" sheet when present.
-async function getStrategyMap({ sheet, refresh } = {}) {
-  const sheetName = await resolveSheet(sheet);
-  const scorecard = await loadScorecard(sheetName, { refresh });
+async function getStrategyMap(wb, { sheet, refresh } = {}) {
+  const sheetName = await resolveSheet(wb, sheet);
+  const scorecard = await loadScorecard(wb, sheetName, { refresh });
 
   const perspectives = scorecard.perspectives.map((p) => ({
     name: p.name,
@@ -355,16 +386,16 @@ async function getStrategyMap({ sheet, refresh } = {}) {
     }),
   }));
 
-  return { sheet: sheetName, perspectives, targets: await getMapTargets() };
+  return { sheet: sheetName, perspectives, targets: await getMapTargets(wb) };
 }
 
 // Reads the Objective | Target list from the "Strategy Map" sheet
-async function getMapTargets() {
-  const sheets = await listWorksheets();
+async function getMapTargets(wb) {
+  const sheets = await listWorksheets(wb);
   const mapSheet = sheets.find((s) => /^strategy map$/i.test(s.name.trim()));
   if (!mapSheet) return [];
 
-  const { values } = await getUsedRange(mapSheet.name);
+  const { values } = await getUsedRange(wb, mapSheet.name);
   for (let r = 0; r < values.length; r++) {
     const c = values[r].findIndex((v) => /^objectives?$/i.test(oneLine(v)));
     if (c === -1 || !/^targets?$/i.test(oneLine(values[r][c + 1]))) continue;
@@ -388,6 +419,7 @@ module.exports = {
   getStrategyMap,
   parseScorecard,
   collectDepartments,
+  resolveSheet,
   invalidateScorecard,
   invalidateAllScorecards,
   // Sheet-reading helpers shared with grid.service

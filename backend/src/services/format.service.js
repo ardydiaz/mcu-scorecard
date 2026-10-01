@@ -1,21 +1,21 @@
 const path = require('path');
 const { Worker } = require('worker_threads');
-const env = require('../config/env');
 const { getAppGraphClient } = require('./graph.service');
 const logger = require('../utils/logger');
 
 // Sheet formatting (widths, colors, fonts) comes from the .xlsx file itself, because reading it
 // cell by cell through Graph takes minutes. Parsing takes a few seconds, so it runs in a worker
-// thread and the result is cached; stale results are served while a refresh runs in the background.
+// thread and the result is cached per workbook; stale results are served while a refresh runs.
+// `wb` is the workbook ({ driveId, itemId, ... }, see workbook.service).
 const FORMAT_TTL_MS = 15 * 60 * 1000;
 const WORKER_PATH = path.join(__dirname, '../workers/xlsxFormat.worker.js');
 
-let cached = null; // { at, sheets }
-let loading = null; // in-flight Promise
+const cached = new Map(); // itemId -> { at, sheets }
+const loading = new Map(); // itemId -> in-flight Promise
 
-async function downloadWorkbook() {
+async function downloadWorkbook(wb) {
   const client = await getAppGraphClient();
-  const stream = await client.api(`/drives/${env.excel.driveId}/items/${env.excel.itemId}/content`).getStream();
+  const stream = await client.api(`/drives/${wb.driveId}/items/${wb.itemId}/content`).getStream();
   const chunks = [];
   for await (const chunk of stream) chunks.push(chunk);
   return Buffer.concat(chunks);
@@ -30,27 +30,30 @@ function parseInWorker(buffer) {
   });
 }
 
-function refresh() {
-  if (!loading) {
+function refresh(wb) {
+  if (!loading.has(wb.itemId)) {
     const started = Date.now();
-    loading = downloadWorkbook()
+    loading.set(wb.itemId, downloadWorkbook(wb)
       .then(parseInWorker)
       .then((sheets) => {
-        cached = { at: Date.now(), sheets };
-        logger.info(`Loaded Excel formatting for ${Object.keys(sheets).length} sheets in ${Date.now() - started} ms`);
+        cached.set(wb.itemId, { at: Date.now(), sheets });
+        logger.info(`Loaded Excel formatting of "${wb.name || wb.itemId}" (${Object.keys(sheets).length} sheets) in ${Date.now() - started} ms`);
         return sheets;
       })
-      .finally(() => { loading = null; });
+      .finally(() => loading.delete(wb.itemId)));
   }
-  return loading;
+  return loading.get(wb.itemId);
 }
 
+const sheetOf = (wb, sheetName) => cached.get(wb.itemId)?.sheets[sheetName];
+
 // Formatting of one sheet, or null if it can't be loaded (the grid then uses default styling)
-async function getSheetFormat(sheetName) {
+async function getSheetFormat(wb, sheetName) {
   try {
-    if (!cached) await refresh();
-    else if (Date.now() - cached.at > FORMAT_TTL_MS) refresh().catch((err) => logger.warn(`Format refresh failed: ${err.message}`));
-    return cached?.sheets[sheetName] || null;
+    const hit = cached.get(wb.itemId);
+    if (!hit) await refresh(wb);
+    else if (Date.now() - hit.at > FORMAT_TTL_MS) refresh(wb).catch((err) => logger.warn(`Format refresh failed: ${err.message}`));
+    return sheetOf(wb, sheetName) || null;
   } catch (err) {
     logger.warn(`Could not load Excel formatting: ${err.message}`);
     return null;
@@ -59,8 +62,8 @@ async function getSheetFormat(sheetName) {
 
 // Applies a format change made through the system to the cached styles, so the grid shows it
 // right away without re-parsing the workbook. Returns the cell's style before and after.
-function updateCachedStyle(sheetName, rowNumber, columnIndex, format) {
-  const sheet = cached?.sheets[sheetName];
+function updateCachedStyle(wb, sheetName, rowNumber, columnIndex, format) {
+  const sheet = sheetOf(wb, sheetName);
   const current = sheet?.styles[sheet.cells[rowNumber]?.[columnIndex]] || null;
   const before = current ? { ...current } : null;
 
@@ -88,8 +91,8 @@ function updateCachedStyle(sheetName, rowNumber, columnIndex, format) {
 
 // Records a merge/unmerge made through the system in the cached merged areas.
 // `area` is 1-based { top, left, bottom, right }.
-function updateCachedMerge(sheetName, area, merged) {
-  const sheet = cached?.sheets[sheetName];
+function updateCachedMerge(wb, sheetName, area, merged) {
+  const sheet = sheetOf(wb, sheetName);
   if (!sheet) return;
   const overlaps = (m) => m.top <= area.bottom && m.bottom >= area.top && m.left <= area.right && m.right >= area.left;
   sheet.merges = (sheet.merges || []).filter((m) => !overlaps(m));
@@ -97,13 +100,13 @@ function updateCachedMerge(sheetName, area, merged) {
 }
 
 // Sheet tab color from the cached formatting (null until it has loaded once)
-function getTabColor(sheetName) {
-  return cached?.sheets[sheetName]?.tabColor || null;
+function getTabColor(wb, sheetName) {
+  return sheetOf(wb, sheetName)?.tabColor || null;
 }
 
-// Called at startup so the first user doesn't wait for the parse
-function warmUp() {
-  refresh().catch((err) => logger.warn(`Format warm-up failed: ${err.message}`));
+// Loads a workbook's formatting in the background so its first viewer doesn't wait
+function warmUp(wb) {
+  if (wb) refresh(wb).catch((err) => logger.warn(`Format warm-up failed: ${err.message}`));
 }
 
 module.exports = { getSheetFormat, getTabColor, updateCachedStyle, updateCachedMerge, warmUp };

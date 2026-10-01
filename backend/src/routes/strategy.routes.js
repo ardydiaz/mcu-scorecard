@@ -7,11 +7,17 @@ const { validate } = require('../middleware/validation.middleware');
 const router = Router();
 
 router.use(authenticate);
+// Which scorecard file (workbooks.id); the default file when absent
+router.use(
+  query('workbook').optional({ values: 'falsy' }).isInt({ min: 1 }),
+  body('workbook').optional({ values: 'falsy' }).isInt({ min: 1 }),
+);
 
 const sheetQuery = query('sheet').optional().isString().trim().isLength({ min: 1, max: 100 });
 
-router.get('/sheets', strategy.listSheets);
-router.get('/workbook', strategy.getWorkbook);
+router.get('/workbooks', strategy.listWorkbooks);
+router.get('/sheets', validate, strategy.listSheets);
+router.get('/workbook', validate, strategy.getWorkbook);
 router.get('/scorecard',
   sheetQuery,
   query('department').optional().isString().trim().isLength({ min: 1, max: 20 }),

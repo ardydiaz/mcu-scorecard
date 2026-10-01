@@ -28,6 +28,8 @@ const env = {
   excel: {
     driveId: process.env.EXCEL_DRIVE_ID,
     itemId: process.env.EXCEL_ITEM_ID,
+    // Folder to look for scorecard files in; defaults to the folder that holds EXCEL_ITEM_ID
+    folderId: process.env.EXCEL_FOLDER_ID || null,
   },
 };
 

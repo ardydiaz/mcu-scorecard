@@ -12,6 +12,8 @@ const AccessRule = sequelize.define('AccessRule', {
   subjectType: { type: DataTypes.ENUM('user', 'department'), allowNull: false },
   userId: { type: DataTypes.INTEGER, allowNull: true },
   departmentCode: { type: DataTypes.STRING(20), allowNull: true },
+  // Which file: one workbook (workbooks.id), or every file when null. Row ID rules always name one.
+  workbookId: { type: DataTypes.INTEGER, allowNull: true },
   // Which rows: in one sheet, or every scorecard sheet when null
   sheet: { type: DataTypes.STRING, allowNull: true },
   // lead / support: codes in that column; perspective / objective / kra: names; rowId: Row IDs

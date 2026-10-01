@@ -12,11 +12,16 @@ const router = Router();
 router.use(authenticate, authorize('admin', 'manager'));
 const adminOnly = authorize('admin');
 
-const sheetQuery = query('sheet').isString().trim().isLength({ min: 1, max: 100 });
+const sheetQuery = [
+  query('sheet').isString().trim().isLength({ min: 1, max: 100 }),
+  query('workbook').optional().isInt({ min: 1 }),
+];
 const ruleBody = [
   body('subjectType').isIn(['user', 'department']),
   body('userId').optional({ values: 'null' }).isInt({ min: 1 }),
   body('departmentCode').optional({ values: 'null' }).isString().isLength({ max: 20 }),
+  // File: workbooks.id, or null for all files
+  body('workbookId').optional({ values: 'null' }).isInt({ min: 1 }),
   body('sheet').optional({ values: 'null' }).isString().isLength({ max: 100 }),
   body('matchType').isIn(MATCH_TYPES),
   body('matchValues').isArray({ min: 1, max: 500 }),
@@ -31,7 +36,12 @@ router.put('/:id', param('id').isInt({ min: 1 }), ruleBody, validate, rules.upda
 router.delete('/:id', param('id').isInt({ min: 1 }), validate, rules.remove);
 
 router.get('/row-ids', adminOnly, sheetQuery, validate, rules.rowIdStatus);
-router.post('/row-ids/assign', adminOnly, body('sheet').isString().trim().isLength({ min: 1, max: 100 }), validate, rules.assignRowIds);
+router.post('/row-ids/assign', adminOnly,
+  body('sheet').isString().trim().isLength({ min: 1, max: 100 }),
+  body('workbook').optional().isInt({ min: 1 }),
+  validate,
+  rules.assignRowIds
+);
 router.get('/rows', sheetQuery, validate, rules.rows);
 router.get('/options', sheetQuery, validate, rules.options);
 

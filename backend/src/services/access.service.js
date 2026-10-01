@@ -23,9 +23,12 @@ const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || 
 
 /**
  * Whether an access rule applies to a row. `facts` describes the row:
- * { sheet, lead: [codes], support: [codes], perspective, objective, kra, rowId }
+ * { workbookId, sheet, lead: [codes], support: [codes], perspective, objective, kra, rowId }
  */
 function ruleMatches(rule, facts) {
+  // A rule without a file applies to every file; Row ID rules always name one (IDs are per file)
+  if (rule.workbookId && rule.workbookId !== facts.workbookId) return false;
+  if (rule.matchType === 'rowId' && !rule.workbookId) return false;
   if (rule.sheet && rule.sheet !== facts.sheet) return false;
   // A Department Head's rule never reaches beyond rows their department leads
   if (Array.isArray(rule.scopeCodes) && rule.scopeCodes.length

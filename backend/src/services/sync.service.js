@@ -3,6 +3,7 @@ const { listAllUsers } = require('./graph.service');
 const { upsertByAzureOid } = require('./user.service');
 const { linkUserToM365Department } = require('./department.service');
 const { departmentValue } = require('../config/departments');
+const { refreshAllPhotos } = require('./photo.service');
 const logger = require('../utils/logger');
 
 // Pulls all Entra ID users into the local DB and links them to departments based on the
@@ -33,6 +34,8 @@ async function syncUsersFromAzure() {
   });
 
   logger.info(`Synced ${synced} users from Azure AD (${linked} linked to a department)`);
+  // Profile photos take a while for many users, so they're copied in the background
+  refreshAllPhotos().catch((err) => logger.warn(`Photo refresh after sync failed: ${err.message}`));
   return { synced, total: azureUsers.length, linked, unmatchedDepartments: [...unmatched].sort() };
 }
 

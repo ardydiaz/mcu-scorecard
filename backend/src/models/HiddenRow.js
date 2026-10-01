@@ -7,12 +7,13 @@ const { sequelize } = require('../config/database');
 const HiddenRow = sequelize.define('HiddenRow', {
   id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
   userId: { type: DataTypes.INTEGER, allowNull: false },
+  workbookId: { type: DataTypes.INTEGER, allowNull: false },
   sheet: { type: DataTypes.STRING, allowNull: false },
   rowKey: { type: DataTypes.STRING(300), allowNull: false },
 }, {
   tableName: 'hidden_rows',
   updatedAt: false,
-  indexes: [{ unique: true, fields: ['user_id', 'sheet', 'row_key'] }],
+  indexes: [{ unique: true, name: 'hidden_rows_user_workbook_sheet_row', fields: ['user_id', 'workbook_id', 'sheet', 'row_key'] }],
 });
 
 module.exports = HiddenRow;

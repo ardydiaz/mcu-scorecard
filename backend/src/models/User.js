@@ -13,6 +13,9 @@ const User = sequelize.define('User', {
   role: { type: DataTypes.ENUM('admin', 'manager', 'user'), defaultValue: 'user' },
   isActive: { type: DataTypes.BOOLEAN, defaultValue: true },
   lastLoginAt: { type: DataTypes.DATE },
+  // When the saved M365 profile photo last changed (NULL = no photo). The frontend adds it to the
+  // photo URL, so browsers fetch the new image only after it changes.
+  photoUpdatedAt: { type: DataTypes.DATE, allowNull: true },
 }, { tableName: 'users' });
 
 module.exports = User;
