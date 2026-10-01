@@ -348,6 +348,28 @@ h1, h2, h3 { margin: 0; line-height: 1.25; }
 .stat__label { color: #e2d3ec; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
 .stat__value { font-size: 28px; font-weight: 800; color: var(--gold-burst); }
 
+/* Dashboard: scorecard files with an Excel icon */
+.file-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.file-list__item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+}
+.file-list__item:hover { border-color: var(--primary); background: var(--surface-2); transform: translateY(-1px); }
+.file-list__item svg { flex-shrink: 0; }
+.file-list__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.file-list__name { font-weight: 600; overflow-wrap: anywhere; }
+.file-list__meta { font-size: 12px; }
+.file-list__open { color: var(--primary); font-size: 13px; font-weight: 600; white-space: nowrap; }
+@media (max-width: 600px) { .file-list__open { display: none; } }
+
 .link-list { list-style: none; margin: 0; padding: 0; }
 .link-list li { padding: 10px 0; border-bottom: 1px solid var(--border); }
 .link-list li:last-child { border-bottom: 0; }
@@ -896,6 +918,66 @@ a.btn { text-decoration: none; }
 .btn--sm { padding: 4px 10px; font-size: 13px; }
 .btn--danger { color: var(--error-text); }
 .btn--danger:hover { background: var(--error-bg); }
+.btn--danger-solid { background: #c0263f; color: #fff; }
+.btn--danger-solid:hover:not(:disabled) { background: #a01d33; }
+
+/* Success toasts (utils/dialog.js toastSuccess): green, top center */
+.mcu-toast {
+  width: min(520px, calc(100vw - 32px)) !important;
+  padding: 12px 14px !important;
+  border-radius: 14px !important;
+  background: #16794a !important;
+  color: #fff !important;
+  box-shadow: 0 10px 30px rgba(10, 60, 35, 0.35) !important;
+  font-family: inherit;
+}
+.mcu-toast__text { margin: 0 6px !important; color: #fff !important; font-size: 14px !important; font-weight: 600 !important; line-height: 1.45; text-align: left; }
+.mcu-toast .swal2-icon.swal2-success { border-color: #fff !important; color: #fff !important; }
+.mcu-toast .swal2-icon.swal2-success [class^='swal2-success-line'] { background-color: #fff !important; }
+.mcu-toast .swal2-icon.swal2-success .swal2-success-ring { border-color: rgba(255, 255, 255, 0.45) !important; }
+.mcu-toast .swal2-icon.swal2-success [class^='swal2-success-circular-line'],
+.mcu-toast .swal2-icon.swal2-success .swal2-success-fix { background-color: #16794a !important; }
+.mcu-toast__close { color: rgba(255, 255, 255, 0.8) !important; }
+.mcu-toast__close:hover { color: #fff !important; }
+.mcu-toast__bar { background: rgba(255, 255, 255, 0.55) !important; }
+
+/* Confirmation dialogs (utils/dialog.js, SweetAlert2) */
+.mcu-swal {
+  width: min(460px, calc(100vw - 32px));
+  padding: 28px 28px 24px;
+  border: 1px solid var(--border);
+  border-top: 4px solid var(--gold-ignite);
+  border-radius: 20px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+  font-family: inherit;
+}
+.mcu-swal__title { padding: 0; color: var(--text); font-family: var(--font-display); font-size: 21px; font-weight: 700; overflow-wrap: anywhere; }
+.mcu-swal__body { margin: 12px 0 0; padding: 0; color: var(--muted); font-size: 14px; line-height: 1.6; text-align: left; }
+.mcu-swal__text { margin: 0; white-space: pre-line; }
+.mcu-swal__list {
+  margin: 12px 0 0;
+  padding: 10px 12px 10px 28px;
+  max-height: 180px;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+}
+.mcu-swal__list li { margin: 2px 0; overflow-wrap: anywhere; }
+.mcu-swal__actions { gap: 10px; margin-top: 22px; }
+.mcu-swal__actions .btn { min-width: 110px; }
+.mcu-swal__icon { margin: 0 auto 16px; transform: scale(0.8); }
+.mcu-swal__icon--primary, .mcu-swal__icon--info { border-color: var(--purple-haze) !important; color: var(--purple-haze) !important; }
+.mcu-swal__icon--warning { border-color: var(--gold-spark) !important; color: var(--gold-spark) !important; }
+.mcu-swal__icon--danger { border-color: #e0566b !important; color: #e0566b !important; }
+/* Dims the page behind confirmation dialogs only (toasts have their own container and no backdrop) */
+.mcu-swal-backdrop.swal2-backdrop-show { background: rgba(46, 0, 70, 0.5) !important; backdrop-filter: blur(2px); }
+@media (prefers-color-scheme: dark) {
+  .mcu-swal__icon--primary, .mcu-swal__icon--info { border-color: var(--gold-ignite) !important; color: var(--gold-ignite) !important; }
+}
 
 /* Departments admin page */
 .dept-table-wrap { overflow-x: auto; }

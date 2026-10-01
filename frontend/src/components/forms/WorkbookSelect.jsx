@@ -1,9 +1,9 @@
 const STATUS_SUFFIX = { draft: ' (Draft)', hidden: ' (Hidden)' };
 
-// Scorecard file picker; only shown when there is more than one file to choose from.
-// `value` '' means the default file.
+// Scorecard file picker (hidden files are never listed). Shown even with a single file, so users
+// always see which file they're looking at. `value` '' means the default file.
 export default function WorkbookSelect({ workbooks, value, onChange }) {
-  if (workbooks.length < 2) return null;
+  if (!workbooks.length) return null;
   const selected = value || String(workbooks.find((w) => w.isDefault)?.id ?? workbooks[0].id);
   return (
     <label className="field">

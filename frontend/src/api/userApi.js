@@ -22,8 +22,3 @@ export async function setUserDepartments(id, departmentIds) {
   const { data } = await api.put(`/users/${id}/departments`, { departmentIds });
   return data;
 }
-
-export async function syncUsers() {
-  const { data } = await api.post('/users/sync');
-  return data;
-}

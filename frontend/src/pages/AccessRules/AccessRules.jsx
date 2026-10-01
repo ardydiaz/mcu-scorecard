@@ -10,6 +10,7 @@ import { getErrorMessage } from '../../api/axios';
 import Card from '../../components/common/Card';
 import Loader from '../../components/common/Loader';
 import ErrorMessage from '../../components/common/ErrorMessage';
+import { confirmDialog, toastSuccess } from '../../utils/dialog';
 
 const MATCH_TYPES = [
   { value: 'rowId', label: 'Specific rows (Row ID)' },
@@ -256,7 +257,7 @@ function RuleForm({ initial, workbooks, defaultWorkbook, users, departments, sav
             selected={rule.matchValues}
             onChange={(values) => set('matchValues', values)}
             emptyText={rule.matchType === 'rowId'
-              ? 'This sheet has no Row IDs yet. Use “Assign Row IDs” above first.'
+              ? 'This sheet has no Row IDs yet. An admin can add them with “Assign Row IDs” above (or on the Workbooks page).'
               : 'Nothing to choose in this sheet.'}
           />
         )}
@@ -302,7 +303,6 @@ function RowIdPanel({ workbooks, defaultWorkbook }) {
   const [sheet, setSheet] = useState('');
   const [status, setStatus] = useState(null);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -319,14 +319,18 @@ function RowIdPanel({ workbooks, defaultWorkbook }) {
   async function assign() {
     const toAssign = status.missing.length + status.duplicates.reduce((n, d) => n + d.rows.length - 1, 0);
     const firstTime = !status.hasColumn
-      ? `\n\nThe first time, a new "Row ID" column is added in column ${status.column} and hidden in Excel. No existing cells are changed.`
+      ? `\n\nThe first time, a new “Row ID” column is added in column ${status.column} and hidden in Excel. No existing cells are changed.`
       : '';
-    if (!window.confirm(`Write Row IDs into "${sheet}"?\n\n${toAssign} row(s) will get a new ID. Existing IDs are kept.${firstTime}`)) return;
+    if (!(await confirmDialog({
+      title: `Write Row IDs into “${sheet}”?`,
+      text: `${toAssign} row(s) will get a new ID. Existing IDs are kept.${firstTime}`,
+      confirmText: 'Assign Row IDs',
+      tone: 'warning',
+    }))) return;
     setBusy(true);
-    setNotice('');
     try {
       const result = await assignRowIds({ workbook: fileId, sheet });
-      setNotice(`${result.assigned} Row ID(s) assigned in column ${result.column}${result.createdColumn ? ' (created and hidden)' : ''}.`);
+      toastSuccess(`${result.assigned} Row ID(s) assigned in column ${result.column}${result.createdColumn ? ' (created and hidden)' : ''}.`);
       load();
     } catch (err) {
       setError(getErrorMessage(err));
@@ -347,7 +351,7 @@ function RowIdPanel({ workbooks, defaultWorkbook }) {
         {workbooks.length > 1 && (
           <label className="field">
             <span className="field__label">File</span>
-            <select className="input" value={fileId} onChange={(e) => { setWorkbook(e.target.value); setNotice(''); }}>
+            <select className="input" value={fileId} onChange={(e) => { setWorkbook(e.target.value); }}>
               {workbooks.map((w) => <option key={w.id} value={String(w.id)}>{fileName(w)}{STATUS_SUFFIX[w.status] || ''}</option>)}
             </select>
           </label>
@@ -365,7 +369,6 @@ function RowIdPanel({ workbooks, defaultWorkbook }) {
         )}
       </div>
       <ErrorMessage>{error}</ErrorMessage>
-      {notice && <div className="alert alert--success">{notice}</div>}
       {!status && !error && <Loader label="Checking the sheet…" />}
       {status && (
         <ul className="rowid-status">
@@ -405,7 +408,6 @@ export default function AccessRules() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
 
   const load = useCallback(() => {
     getAccessRules().then(setRules).catch((err) => setError(getErrorMessage(err)));
@@ -423,7 +425,7 @@ export default function AccessRules() {
     try {
       if (editing === 'new') await createAccessRule(payload);
       else await updateAccessRule(editing, payload);
-      setNotice('Rule saved. It applies immediately.');
+      toastSuccess('Rule saved. It applies immediately.');
       setEditing(null);
       load();
     } catch (err) {
@@ -439,11 +441,16 @@ export default function AccessRules() {
       : rule.permission === 'view'
         ? 'They lose the read-only limit / extra access this rule gave, immediately.'
         : 'They lose the edit access this rule gave, immediately.';
-    if (!window.confirm(`Delete this rule for ${rule.subjectLabel}?\n\n${effect}`)) return;
+    if (!(await confirmDialog({
+      title: `Delete this rule for ${rule.subjectLabel}?`,
+      text: effect,
+      confirmText: 'Delete rule',
+      tone: 'danger',
+    }))) return;
     try {
       await deleteAccessRule(rule.id);
       setEditing(null);
-      setNotice('Rule deleted.');
+      toastSuccess('Rule deleted.');
       load();
     } catch (err) {
       setError(getErrorMessage(err));
@@ -461,7 +468,7 @@ export default function AccessRules() {
     permission: r.permission,
     note: r.note || '',
   });
-  const start = (id) => { setEditing(id); setFormError(''); setNotice(''); };
+  const start = (id) => { setEditing(id); setFormError(''); };
   const fileList = workbooks || [];
   const defaultWorkbook = String(fileList.find((w) => w.isDefault)?.id ?? fileList[0]?.id ?? '');
   const manyFiles = fileList.length > 1;
@@ -488,7 +495,6 @@ export default function AccessRules() {
       )}
 
       <ErrorMessage>{error}</ErrorMessage>
-      {notice && <div className="alert alert--success">{notice}</div>}
 
       {editing === 'new' ? (
         <Card title="New access rule">

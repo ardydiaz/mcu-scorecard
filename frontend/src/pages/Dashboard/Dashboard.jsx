@@ -1,31 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import useAuth from '../../hooks/useAuth';
-import { useScorecard, useScorecardSheets } from '../../hooks/useStrategy';
+import { useScorecard, useWorkbooks } from '../../hooks/useStrategy';
 import Card from '../../components/common/Card';
 import ErrorMessage from '../../components/common/ErrorMessage';
-import { syncUsers } from '../../api/userApi';
-import { getErrorMessage } from '../../api/axios';
+import ExcelIcon from '../../components/common/ExcelIcon';
+import Loader from '../../components/common/Loader';
 import { capitalize } from '../../utils/format';
 
 export default function Dashboard() {
   const { user, refreshUser } = useAuth();
-  const sheets = useScorecardSheets();
+  const files = useWorkbooks();
 
   // Re-read the profile so role/department changes show without signing in again
   useEffect(() => { refreshUser(); }, [refreshUser]);
   const scorecard = useScorecard({ sheet: '', department: '' });
-  const [syncState, setSyncState] = useState({ running: false, message: '', error: '' });
-
-  async function handleSync() {
-    setSyncState({ running: true, message: '', error: '' });
-    try {
-      const result = await syncUsers();
-      setSyncState({ running: false, message: `Synced ${result.synced} of ${result.total} users.`, error: '' });
-    } catch (err) {
-      setSyncState({ running: false, message: '', error: getErrorMessage(err) });
-    }
-  }
 
   const firstName = (user.displayName || '').split(' ')[0];
   const departments = (user.departments || []).map((d) => d.code || d.name);
@@ -62,35 +51,33 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <Card title="Scorecard sheets">
-        <ErrorMessage>{sheets.error || scorecard.error}</ErrorMessage>
-        {sheets.data && sheets.data.length === 0 && <p className="muted">The workbook has no scorecard sheets yet.</p>}
-        {sheets.data && sheets.data.length > 0 && (
-          <ul className="link-list">
-            {sheets.data.map((s, i) => (
-              <li key={s.id}>
-                <Link to={`/scorecard?sheet=${encodeURIComponent(s.name)}`}>{s.name}</Link>
-                {i === 0 && <span className="badge">Current</span>}
+      <Card title="Scorecard files">
+        <ErrorMessage>{files.error || scorecard.error}</ErrorMessage>
+        {files.loading && !files.data && <Loader label="Loading files…" />}
+        {files.data && files.data.length === 0 && <p className="muted">No scorecard files have been published yet.</p>}
+        {files.data && files.data.length > 0 && (
+          <ul className="file-list">
+            {files.data.map((w) => (
+              <li key={w.id}>
+                <Link to={`/strategy-map?workbook=${w.id}`} className="file-list__item">
+                  <ExcelIcon />
+                  <span className="file-list__body">
+                    <span className="file-list__name">
+                      {w.name.replace(/\.xlsx$/i, '')}
+                      {w.isDefault && <span className="badge">Default</span>}
+                      {w.status === 'draft' && <span className="badge badge--draft">Draft</span>}
+                    </span>
+                    <span className="file-list__meta muted">
+                      Excel workbook{w.lastModifiedAt ? ` · Updated ${new Date(w.lastModifiedAt).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}` : ''}
+                    </span>
+                  </span>
+                  <span className="file-list__open" aria-hidden="true">Open →</span>
+                </Link>
               </li>
             ))}
           </ul>
         )}
       </Card>
-
-      {user.role === 'admin' && (
-        <Card
-          title="Administration"
-          actions={(
-            <button type="button" className="btn btn--primary" onClick={handleSync} disabled={syncState.running}>
-              {syncState.running ? 'Syncing…' : 'Sync users from Microsoft 365'}
-            </button>
-          )}
-        >
-          <p className="muted">Imports every account and department from Microsoft Entra ID.</p>
-          {syncState.message && <div className="alert alert--success">{syncState.message}</div>}
-          <ErrorMessage>{syncState.error}</ErrorMessage>
-        </Card>
-      )}
     </div>
   );
 }

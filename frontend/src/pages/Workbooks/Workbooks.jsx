@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getAdminWorkbooks, setDefaultWorkbook, setWorkbookStatus } from '../../api/workbookApi';
+import { assignWorkbookRowIds, getAdminWorkbooks, setDefaultWorkbook, setWorkbookStatus } from '../../api/workbookApi';
 import { getErrorMessage } from '../../api/axios';
 import Card from '../../components/common/Card';
 import Loader from '../../components/common/Loader';
 import ErrorMessage from '../../components/common/ErrorMessage';
+import { confirmDialog, toastSuccess } from '../../utils/dialog';
 
 const STATUS = {
   draft: { label: 'Draft', className: 'badge badge--draft', help: 'Only admins see it' },
@@ -13,6 +14,17 @@ const STATUS = {
 
 const POLL_MS = 15 * 1000;
 
+// " Row IDs: Sheet1 – 102 assigned (new column AF); …" for the notice after Publish / Assign Row IDs
+function rowIdSummary(rowIds) {
+  if (!rowIds?.length) return rowIds ? ' No scorecard sheets were found, so no Row IDs were added.' : '';
+  const parts = rowIds.map((s) => {
+    if (s.error) return `${s.sheet} – not done (${s.error})`;
+    if (!s.assigned && !s.createdColumn) return `${s.sheet} – already complete`;
+    return `${s.sheet} – ${s.assigned} assigned${s.createdColumn ? ` (new hidden column ${s.column})` : ''}`;
+  });
+  return ` Row IDs: ${parts.join('; ')}.`;
+}
+
 const formatDate =(value) => (value ? new Date(value).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 
 // Admin page: Excel files in the SharePoint Strategy → Scorecard folder. New files arrive as Draft;
@@ -20,7 +32,6 @@ const formatDate =(value) => (value ? new Date(value).toLocaleString('en-PH', { 
 export default function Workbooks() {
   const [workbooks, setWorkbooks] = useState(null);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(null); // workbook id, or 'refresh'
 
   const load = useCallback((refresh = false) => {
@@ -52,13 +63,13 @@ export default function Workbooks() {
     };
   }, []);
 
+  // `message` is text, or a function of the action's result
   async function run(w, action, message) {
     setBusy(w.id);
     setError('');
-    setNotice('');
     try {
-      await action();
-      setNotice(message);
+      const result = await action();
+      toastSuccess(typeof message === 'function' ? message(result) : message);
       await load();
     } catch (err) {
       setError(getErrorMessage(err));
@@ -66,10 +77,31 @@ export default function Workbooks() {
     }
   }
 
-  const changeStatus = (w, status) => {
-    if (status === 'hidden' && !window.confirm(`Hide “${w.name}”?\n\nUsers will no longer see it in the File list. The file in SharePoint isn't changed.`)) return;
+  const changeStatus = async (w, status) => {
+    if (status === 'hidden' && !(await confirmDialog({
+      title: `Hide “${w.name}”?`,
+      text: "Users will no longer see it in the File list. The file in SharePoint isn't changed, and you can publish it again later.",
+      confirmText: 'Hide file',
+      tone: 'danger',
+    }))) return;
+    if (status === 'published' && w.status !== 'published' && !(await confirmDialog({
+      title: `Publish “${w.name}”?`,
+      text: 'Users will be able to open it. Its scorecard sheets also get Row IDs (SC-0001, …) in a hidden “Row ID” column, '
+        + 'like the other files, so access rules can target specific rows. No existing cells are changed.',
+      confirmText: 'Publish',
+    }))) return;
     const what = { published: 'published. Users can now open it', draft: 'moved back to Draft. Only admins see it now', hidden: 'hidden' }[status];
-    run(w, () => setWorkbookStatus(w.id, status), `“${w.name}” ${what}.`);
+    run(w, () => setWorkbookStatus(w.id, status), (result) => `“${w.name}” ${what}.${rowIdSummary(result?.rowIds)}`);
+  };
+  const assignIds = async (w) => {
+    if (!(await confirmDialog({
+      title: `Assign Row IDs in “${w.name}”?`,
+      text: 'Every scorecard sheet gets a hidden “Row ID” column (created the first time) and rows without an ID get one. '
+        + 'Existing IDs and cells are not changed.',
+      confirmText: 'Assign Row IDs',
+      tone: 'warning',
+    }))) return;
+    run(w, () => assignWorkbookRowIds(w.id), (result) => `Row IDs checked in “${w.name}”.${rowIdSummary(result.rowIds)}`);
   };
   const makeDefault = (w) => run(w, () => setDefaultWorkbook(w.id), `“${w.name}” now opens first for everyone.`);
 
@@ -94,7 +126,6 @@ export default function Workbooks() {
       </div>
 
       <ErrorMessage>{error}</ErrorMessage>
-      {notice && <div className="alert alert--success">{notice}</div>}
 
       {!workbooks ? <Loader /> : (
         <Card>
@@ -142,6 +173,12 @@ export default function Workbooks() {
                         {w.status === 'published' && (
                           <button type="button" className="btn btn--ghost btn--sm" disabled={busy !== null} onClick={() => changeStatus(w, 'draft')}>
                             Unpublish
+                          </button>
+                        )}
+                        {w.status !== 'hidden' && (
+                          <button type="button" className="btn btn--ghost btn--sm" disabled={busy !== null} onClick={() => assignIds(w)}
+                            title="Add missing Row IDs to every scorecard sheet of this file">
+                            {busy === w.id ? 'Working…' : 'Assign Row IDs'}
                           </button>
                         )}
                         {w.status !== 'hidden' && (

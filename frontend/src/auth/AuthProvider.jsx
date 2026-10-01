@@ -12,6 +12,7 @@ import {
   signInWithMicrosoft,
   signOutOfMicrosoft,
 } from './authService';
+import { appConfig } from './msalConfig';
 
 // redirectResult / redirectError come from MSAL's handleRedirectPromise in main.jsx
 export default function AuthProvider({ redirectResult, redirectError, children }) {
@@ -102,6 +103,15 @@ export default function AuthProvider({ redirectResult, redirectError, children }
     clearSession();
     signOutOfMicrosoft();
   }, [clearSession]);
+
+  // Signing out in one tab (token removed from localStorage) signs out the other tabs too
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key === appConfig.tokenStorageKey && !e.newValue) setUser(null);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
 
   const value = useMemo(() => ({
     user,

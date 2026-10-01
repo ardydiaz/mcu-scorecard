@@ -4,6 +4,7 @@ import { getErrorMessage } from '../../api/axios';
 import Card from '../../components/common/Card';
 import Loader from '../../components/common/Loader';
 import ErrorMessage from '../../components/common/ErrorMessage';
+import { confirmDialog, toastSuccess } from '../../utils/dialog';
 
 const EMPTY = { code: '', name: '', description: '', aliases: '', otherNames: '', viewAll: false, leadCodes: '' };
 
@@ -98,7 +99,6 @@ export default function Departments() {
   const [editing, setEditing] = useState(null); // 'new' | department id
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState('');
 
   const load = useCallback(() => {
     getDepartments().then(setDepartments).catch((err) => setError(getErrorMessage(err)));
@@ -111,7 +111,7 @@ export default function Departments() {
     try {
       if (editing === 'new') await createDepartment(payload);
       else await updateDepartment(editing, payload);
-      setNotice(`${payload.code} saved. The change applies right away; users are re-matched at their next sign-in or user sync.`);
+      toastSuccess(`${payload.code} saved. The change applies right away; users are re-matched at their next sign-in or user sync.`);
       setEditing(null);
       load();
     } catch (err) {
@@ -122,12 +122,17 @@ export default function Departments() {
   }
 
   async function remove(d) {
-    const users = d.users ? `\n\n${d.users} user(s) in it will see no scorecard rows while it's deleted.` : '';
-    if (!window.confirm(`Delete department ${d.code} – ${d.name}?${users}\n\nYou can restore it later from "Deleted departments".`)) return;
+    const users = d.users ? `${d.users} user(s) in it will see no scorecard rows while it's deleted.\n\n` : '';
+    if (!(await confirmDialog({
+      title: `Delete department ${d.code} – ${d.name}?`,
+      text: `${users}You can restore it later from “Deleted departments”.`,
+      confirmText: 'Delete department',
+      tone: 'danger',
+    }))) return;
     setError('');
     try {
       const result = await deleteDepartment(d.id);
-      setNotice(`${result.deleted} deleted. It can be restored below.`);
+      toastSuccess(`${result.deleted} deleted. It can be restored below.`);
       load();
     } catch (err) {
       setError(getErrorMessage(err));
@@ -138,7 +143,7 @@ export default function Departments() {
     setError('');
     try {
       await restoreDepartment(d.id);
-      setNotice(`${d.code} restored with its settings${d.users ? ` and ${d.users} user(s)` : ''}.`);
+      toastSuccess(`${d.code} restored with its settings${d.users ? ` and ${d.users} user(s)` : ''}.`);
       load();
     } catch (err) {
       setError(getErrorMessage(err));
@@ -148,7 +153,7 @@ export default function Departments() {
   const active = departments?.filter((d) => !d.deletedAt) || [];
   const deleted = departments?.filter((d) => d.deletedAt) || [];
 
-  const startEdit = (id) => { setEditing(id); setFormError(''); setNotice(''); };
+  const startEdit = (id) => { setEditing(id); setFormError(''); };
 
   return (
     <div className="page">
@@ -161,7 +166,6 @@ export default function Departments() {
       </div>
 
       <ErrorMessage>{error}</ErrorMessage>
-      {notice && <div className="alert alert--success">{notice}</div>}
 
       {editing === 'new' ? (
         <Card title="New department">

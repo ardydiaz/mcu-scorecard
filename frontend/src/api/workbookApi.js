@@ -14,6 +14,12 @@ export async function setWorkbookStatus(id, status) {
   return data;
 }
 
+// Writes Row IDs into every scorecard sheet of the file; { rowIds: [{ sheet, assigned, createdColumn, column } | { sheet, error }] }
+export async function assignWorkbookRowIds(id) {
+  const { data } = await api.post(`/workbooks/${id}/row-ids`, {});
+  return data;
+}
+
 export async function setDefaultWorkbook(id) {
   const { data } = await api.put(`/workbooks/${id}/default`, {});
   return data;

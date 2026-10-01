@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { confirmDialog } from '../../utils/dialog';
 import SheetRibbon from './SheetRibbon';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -568,8 +569,14 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
         result = await onMergeCells({ ...request, confirm: false });
       } catch (err) {
         if (err.code !== 'CONFIRM_MERGE') throw err;
-        const list = err.lost.map((l) => `• ${l.cell} (${l.column}): ${l.value.length > 60 ? `${l.value.slice(0, 60)}…` : l.value}`).join('\n');
-        if (!window.confirm(`Merging keeps only the value in ${cols[startC].letter}${row.row}.\n\nThese values will be deleted:\n${list}\n\nMerge anyway?`)) {
+        const ok = await confirmDialog({
+          title: 'Merge anyway?',
+          text: `Merging keeps only the value in ${cols[startC].letter}${row.row}. These values will be deleted:`,
+          items: err.lost.map((l) => `${l.cell} (${l.column}): ${l.value.length > 60 ? `${l.value.slice(0, 60)}…` : l.value}`),
+          confirmText: 'Merge and delete',
+          tone: 'danger',
+        });
+        if (!ok) {
           setStatus('Merge cancelled');
           return;
         }

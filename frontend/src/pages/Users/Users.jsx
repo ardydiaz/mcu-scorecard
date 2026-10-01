@@ -8,6 +8,7 @@ import ErrorMessage from '../../components/common/ErrorMessage';
 import Pagination from '../../components/common/Pagination';
 import Avatar from '../../components/common/Avatar';
 import { formatDate } from '../../utils/format';
+import { confirmDialog, toastSuccess } from '../../utils/dialog';
 
 const DEFAULT_PAGE_SIZE = 50;
 // "manager" is shown as Department Head: manages access rules for their own department's rows
@@ -27,7 +28,6 @@ export default function Users() {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [busyId, setBusyId] = useState(null);
 
   // Wait until typing pauses before searching
@@ -58,11 +58,10 @@ export default function Users() {
   async function change(u, changes, message) {
     setBusyId(u.id);
     setError('');
-    setNotice('');
     try {
       const updated = await updateUser(u.id, changes);
       setResult((r) => ({ ...r, data: r.data.map((x) => (x.id === u.id ? updated : x)) }));
-      setNotice(message);
+      toastSuccess(message);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -70,9 +69,14 @@ export default function Users() {
     }
   }
 
-  function toggleActive(u) {
+  async function toggleActive(u) {
     const name = u.displayName || u.email;
-    if (u.isActive && !window.confirm(`Deactivate ${name}?\n\nThey are signed out right away and can't sign in until reactivated.`)) return;
+    if (u.isActive && !(await confirmDialog({
+      title: `Deactivate ${name}?`,
+      text: "They are signed out right away and can't sign in until reactivated.",
+      confirmText: 'Deactivate',
+      tone: 'danger',
+    }))) return;
     change(u, { isActive: !u.isActive }, `${name} ${u.isActive ? 'deactivated' : 'reactivated'}.`);
   }
 
@@ -113,7 +117,6 @@ export default function Users() {
       </div>
 
       <ErrorMessage>{error}</ErrorMessage>
-      {notice && <div className="alert alert--success">{notice}</div>}
 
       {!result ? <Loader /> : (
         <Card>
