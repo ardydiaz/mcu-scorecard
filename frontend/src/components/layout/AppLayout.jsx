@@ -12,6 +12,7 @@ const PAGE_NAMES = {
   '/profile': 'Profile',
   '/users': 'Users (admin)',
   '/departments': 'Departments (admin)',
+  '/access-rules': 'Access Rules (admin)',
   '/audit-logs': 'Audit Logs (admin)',
 };
 

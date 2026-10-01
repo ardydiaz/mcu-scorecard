@@ -2,13 +2,18 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAllSheets, useScorecardSheets, useSheetGrid, useStrategyMap, useWorkbook } from '../../hooks/useStrategy';
 import SheetGrid from '../../components/tables/SheetGrid';
-import { formatGridCell, mergeGridCells, updateGridCell } from '../../api/strategyApi';
+import { formatGridCell, mergeGridCells, setHiddenRows, updateGridCell } from '../../api/strategyApi';
 import { getErrorMessage } from '../../api/axios';
 import Loader from '../../components/common/Loader';
 import ErrorMessage from '../../components/common/ErrorMessage';
 import ExcelEmbed from '../../components/common/ExcelEmbed';
 import SheetSelect from '../../components/forms/SheetSelect';
 import { buildSheet } from '../../utils/sheetBuilder';
+
+// Error for SheetGrid: readable message plus the HTTP status (403 = the row is read-only for this user)
+function toGridError(err) {
+  return Object.assign(new Error(getErrorMessage(err)), { status: err.response?.status });
+}
 
 const SUMMARY_TAB = 'Strategy Summary';
 const TARGETS_TAB = 'Institutional Targets';
@@ -98,7 +103,7 @@ function SheetView({ sheet, workbook, gridState, sheets, onSheetChange }) {
         identity: row.identity,
       });
     } catch (err) {
-      throw new Error(getErrorMessage(err));
+      throw toGridError(err);
     }
   }
 
@@ -125,6 +130,15 @@ function SheetView({ sheet, workbook, gridState, sheets, onSheetChange }) {
     }
   }
 
+  // Hides/unhides rows in the user's own view (saved to their account)
+  async function hideRows({ keys, hidden, all }) {
+    try {
+      return await setHiddenRows({ sheet: grid.sheet, keys, hidden, all });
+    } catch (err) {
+      throw toGridError(err);
+    }
+  }
+
   // Changes one cell's formatting in the Excel file; returns { style }
   async function formatCell({ row, col, format }) {
     try {
@@ -136,7 +150,7 @@ function SheetView({ sheet, workbook, gridState, sheets, onSheetChange }) {
         format,
       });
     } catch (err) {
-      throw new Error(getErrorMessage(err));
+      throw toGridError(err);
     }
   }
 
@@ -156,13 +170,15 @@ function SheetView({ sheet, workbook, gridState, sheets, onSheetChange }) {
             onSaveCell={saveCell}
             onFormatCell={formatCell}
             onMergeCells={mergeCells}
+            onHideRows={hideRows}
             sheets={sheets}
             onSheetChange={onSheetChange}
           />
           <p className="muted sheet-view__help">
             Double-click, press <kbd>F2</kbd> or start typing to edit. <kbd>Enter</kbd> saves to the Excel file,
             <kbd>Alt</kbd>+<kbd>Enter</kbd> adds a line break, <kbd>Esc</kbd> cancels. Click a row number or column letter
-            to select it; <kbd>Shift</kbd>+click to select more. Grey italic values are carried down from the row where they start.
+            to select it; <kbd>Shift</kbd>+click to select more. Right-click row numbers (or <kbd>Ctrl</kbd>+<kbd>9</kbd>) to hide
+            rows in your own view. Grey italic values are carried down from the row where they start.
           </p>
         </>
       )}

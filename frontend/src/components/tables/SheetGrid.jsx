@@ -117,11 +117,15 @@ function CellEditor({ initial, isDate, minHeight, onCommit, onCancel, onDraftCha
  * a status bar. `onSaveCell` writes an edit to the Excel file and returns { text, identity }.
  * Carried-down values (grey italics) and formula cells are read-only.
  */
-export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells, sheets = [], onSheetChange }) {
+export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells, onHideRows, sheets = [], onSheetChange }) {
   const format = grid.format;
   const [zoomPct, setZoomPct] = useState(() => readZoom(format?.zoom || 100));
   const zoom = zoomPct / 100;
-  const [rows, setRows] = useState(grid.rows);
+  // allRows: every row the user may see; rows: minus the ones they hid in their own view
+  const [allRows, setRows] = useState(grid.rows);
+  const [hiddenKeys, setHiddenKeys] = useState(() => new Set(grid.hiddenKeys || []));
+  const rows = useMemo(() => allRows.filter((x) => !hiddenKeys.has(x.key)), [allRows, hiddenKeys]);
+  const [rowMenu, setRowMenu] = useState(null); // { x, y, keys } for the row-number right-click menu
   // Local copy of the workbook's style table; formatting done here adds styles to it
   const [styles, setStyles] = useState(format?.styles || []);
   const [sel, setSel] = useState({ r: 0, c: 0 });
@@ -159,6 +163,8 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
 
   useEffect(() => {
     setRows(grid.rows);
+    setHiddenKeys(new Set(grid.hiddenKeys || []));
+    setRowMenu(null);
     setStyles(grid.format?.styles || []);
     setSel({ r: 0, c: 0 });
     setAnchor(null);
@@ -213,6 +219,9 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
   const isReadOnly = (row, i) => !grid.editable || !onSaveCell || row.editable === false
     || row.inherited.includes(i) || row.formulas.includes(i);
   const notYourRow = (row) => row.editable === false;
+  // The server refused a change (403): the whole row is read-only for this user now,
+  // e.g. an admin made it "View only" while the page was open
+  const markRowReadOnly = (rowNumber) => setRows((all) => all.map((x) => (x.row === rowNumber ? { ...x, editable: false } : x)));
 
   // Range selected with Shift+click / Shift+arrows: from `anchor` to `sel`
   const [anchor, setAnchor] = useState(null);
@@ -243,6 +252,63 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
     setSel({ r: rows.length - 1, c });
     scrollRef.current?.focus();
   }
+
+  // ---- Hide rows (personal view setting, saved per user; the Excel file isn't changed) ----
+
+  // Keys of the hidden rows directly above each shown row, and after the last one
+  const hiddenGaps = useMemo(() => {
+    const before = new Map();
+    let pending = [];
+    for (const x of allRows) {
+      if (hiddenKeys.has(x.key)) pending.push(x.key);
+      else if (pending.length) { before.set(x.key, pending); pending = []; }
+    }
+    return { before, after: pending };
+  }, [allRows, hiddenKeys]);
+
+  const selectedRowKeys = () => {
+    const [from, to] = isRange ? [range.r1, range.r2] : [sel.r, sel.r];
+    return rows.slice(from, to + 1).map((x) => x.key);
+  };
+
+  async function setRowsHidden(keys, hidden, { all = false } = {}) {
+    if (!onHideRows || (!keys.length && !all)) return;
+    const previous = hiddenKeys;
+    const next = new Set(all && !hidden ? [] : previous);
+    keys.forEach((k) => (hidden ? next.add(k) : next.delete(k)));
+    setHiddenKeys(next); // show the change right away, then save it
+    setRowMenu(null);
+    setAnchor(null);
+    setSel((s) => ({ r: Math.max(0, Math.min(s.r, allRows.filter((x) => !next.has(x.key)).length - 1)), c: s.c }));
+    const count = all ? previous.size : keys.length;
+    setStatus(`${hidden ? 'Hid' : 'Unhid'} ${count} row${count === 1 ? '' : 's'} in your view`);
+    try {
+      const saved = await onHideRows({ keys, hidden, all });
+      setHiddenKeys(new Set(saved));
+    } catch (err) {
+      setHiddenKeys(previous);
+      setStatus(`Couldn't save hidden rows: ${err.message}`, true);
+    }
+    scrollRef.current?.focus();
+  }
+
+  // Right-click on a row number: act on the selected rows if it's one of them, else on that row
+  function openRowMenu(e, r) {
+    if (!onHideRows) return;
+    e.preventDefault();
+    const inSelection = isRange ? r >= range.r1 && r <= range.r2 : r === sel.r;
+    if (!inSelection) { setAnchor(null); setSel({ r, c: 0 }); }
+    const keys = inSelection ? selectedRowKeys() : [rows[r].key];
+    const box = containerRef.current.getBoundingClientRect();
+    setRowMenu({ x: e.clientX - box.left, y: e.clientY - box.top, keys });
+  }
+
+  useEffect(() => {
+    if (!rowMenu) return undefined;
+    const close = (e) => { if (!e.target.closest?.('.xl-context')) setRowMenu(null); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [rowMenu]);
 
   // Arrow keys step over merged areas; `extend` (Shift) grows the selected range instead
   function move(dr, dc, extend = false) {
@@ -317,6 +383,7 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
     } catch (err) {
       setErrors((e) => ({ ...e, [key]: err.message }));
       setStatus(`${cellAddress}: ${err.message}`, true);
+      if (err.status === 403) markRowReadOnly(row.row);
     } finally {
       setSaving(null);
     }
@@ -358,6 +425,7 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
       setStatus(`Formatted ${cellAddress} in Excel`);
     } catch (err) {
       setStatus(`${cellAddress}: ${err.message}`, true);
+      if (err.status === 403) markRowReadOnly(row.row);
     } finally {
       setSaving(null);
       scrollRef.current?.focus();
@@ -468,6 +536,19 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
   function onKeyDown(e) {
     if (editing) return;
     if (e.key === 'Escape' && expanded) { e.preventDefault(); setExpanded(false); return; }
+    // Excel shortcuts: Ctrl+9 hides the selected rows, Ctrl+Shift+9 unhides rows next to them
+    if ((e.ctrlKey || e.metaKey) && e.code === 'Digit9' && onHideRows) {
+      e.preventDefault();
+      if (!e.shiftKey) {
+        setRowsHidden(selectedRowKeys(), true);
+      } else {
+        const [from, to] = isRange ? [range.r1, range.r2] : [sel.r, sel.r];
+        const near = rows.slice(from, to + 2).flatMap((x) => hiddenGaps.before.get(x.key) || []);
+        const tail = to >= rows.length - 1 ? hiddenGaps.after : [];
+        setRowsHidden([...near, ...tail], false);
+      }
+      return;
+    }
     // Excel shortcuts: Ctrl+B / Ctrl+I / Ctrl+U
     if ((e.ctrlKey || e.metaKey) && onFormatCell && ['b', 'i', 'u'].includes(e.key.toLowerCase())) {
       e.preventDefault();
@@ -519,11 +600,27 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
     <div ref={containerRef} className={expanded ? 'xl xl--expanded' : 'xl'}>
       <SheetTopBar
         filterSummary={filterSummary}
+        hiddenCount={onHideRows ? allRows.length - rows.length : 0}
+        onUnhideAll={() => setRowsHidden([], false, { all: true })}
         zoomPct={zoomPct}
         setZoomPct={setZoomPct}
         isFull={isFull}
         toggleFullscreen={toggleFullscreen}
       />
+      {rowMenu && (
+        <div className="xl-context" role="menu" style={{ left: rowMenu.x, top: rowMenu.y }}>
+          <button type="button" role="menuitem" onClick={() => setRowsHidden(rowMenu.keys, true)}>
+            Hide {rowMenu.keys.length === 1 ? 'row' : `${rowMenu.keys.length} rows`}
+            <kbd>Ctrl+9</kbd>
+          </button>
+          {allRows.length > rows.length && (
+            <button type="button" role="menuitem" onClick={() => setRowsHidden([], false, { all: true })}>
+              Unhide all rows ({allRows.length - rows.length})
+            </button>
+          )}
+          <p className="xl-context__note">Hidden only in your view. Other users and the Excel file aren't affected.</p>
+        </div>
+      )}
       {onFormatCell && (
         <SheetRibbon
           style={selectedStyle}
@@ -590,10 +687,23 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
                 <tr key={row.row} style={{ height }}>
                   <th
                     className={r >= rowFrom && r <= rowTo ? 'xl-rownum xl-rownum--sel' : 'xl-rownum'}
-                    title={`Select row ${row.row} (Shift+click to select several rows)`}
-                    onMouseDown={(e) => selectRows(r, e.shiftKey)}
+                    title={`Select row ${row.row} (Shift+click to select several${onHideRows ? ', right-click to hide' : ''})`}
+                    onMouseDown={(e) => { if (e.button === 0) selectRows(r, e.shiftKey); }}
+                    onContextMenu={(e) => openRowMenu(e, r)}
                   >
+                    {hiddenGaps.before.has(row.key) && (
+                      <button
+                        type="button"
+                        className="xl-hidden-gap"
+                        title={`${hiddenGaps.before.get(row.key).length} hidden row(s) above. Click to unhide.`}
+                        onMouseDown={(e) => { e.stopPropagation(); setRowsHidden(hiddenGaps.before.get(row.key), false); }}
+                        aria-label="Unhide rows above"
+                      />
+                    )}
                     {row.row}
+                    {grid.editable && row.editable === false && (
+                      <span className="xl-lock" title="View only: you can't change this row" aria-label="View only">🔒</span>
+                    )}
                   </th>
                   {cols.map((h, c) => {
                     // Cells covered by a merged area aren't drawn; its top-left cell spans them
@@ -652,6 +762,22 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
                 </tr>
               );
             })}
+            {onHideRows && hiddenGaps.after.length > 0 && (
+              <tr className="xl-hidden-tail">
+                <th className="xl-rownum">
+                  <button
+                    type="button"
+                    className="xl-hidden-gap"
+                    title={`${hiddenGaps.after.length} hidden row(s) below. Click to unhide.`}
+                    onClick={() => setRowsHidden(hiddenGaps.after, false)}
+                    aria-label="Unhide rows below"
+                  />
+                </th>
+                <td colSpan={cols.length} className="xl-hidden-tail__note">
+                  {hiddenGaps.after.length} hidden row(s) below
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -684,10 +810,18 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
 }
 
 // Record count, zoom and full-screen controls shown above the sheet
-function SheetTopBar({ filterSummary, zoomPct, setZoomPct, isFull, toggleFullscreen }) {
+function SheetTopBar({ filterSummary, hiddenCount, onUnhideAll, zoomPct, setZoomPct, isFull, toggleFullscreen }) {
   return (
     <div className="xl-topbar">
-      <span className="xl-topbar__filter">{filterSummary}</span>
+      <span className="xl-topbar__filter">
+        {filterSummary}
+        {hiddenCount > 0 && (
+          <>
+            {' · '}{hiddenCount} hidden by you{' '}
+            <button type="button" className="xl-link" onClick={onUnhideAll}>Unhide all</button>
+          </>
+        )}
+      </span>
       <span className="xl-zoom">
         <button type="button" onClick={() => setZoomPct((z) => ZOOM_STEPS[Math.max(0, ZOOM_STEPS.indexOf(z) - 1)] ?? z)} aria-label="Zoom out">−</button>
         <span>{zoomPct}%</span>

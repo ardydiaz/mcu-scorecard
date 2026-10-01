@@ -51,6 +51,13 @@ export async function mergeGridCells({ sheet, row, endRow, startColumn, endColum
   return data;
 }
 
+// Hides (hidden: true) or unhides rows in the user's own view; `all` with hidden: false unhides
+// everything. Returns the sheet's hidden row keys. The Excel file isn't changed.
+export async function setHiddenRows({ sheet, keys = [], hidden, all = false }) {
+  const { data } = await api.put('/strategy/grid/hidden-rows', { sheet, keys, hidden, all });
+  return data.hiddenKeys;
+}
+
 export async function getStrategyMap({ sheet } = {}) {
   const { data } = await api.get('/strategy/map', { params: { sheet: sheet || undefined } });
   return data;

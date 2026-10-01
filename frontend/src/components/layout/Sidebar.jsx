@@ -12,6 +12,7 @@ const links = [
 const adminLinks = [
   { to: '/users', label: 'Users' },
   { to: '/departments', label: 'Departments' },
+  { to: '/access-rules', label: 'Access Rules' },
   { to: '/audit-logs', label: 'Audit Logs' },
 ];
 
