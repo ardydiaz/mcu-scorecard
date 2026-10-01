@@ -13,10 +13,11 @@ function httpError(status, message) {
   return Object.assign(new Error(message), { status });
 }
 
-async function load(sheet) {
+// `refresh: false` uses the cached copy of the sheet (fine for display, not before writing)
+async function load(sheet, { refresh = true } = {}) {
   const sheets = await listScorecardSheets();
   if (!sheets.some((s) => s.name === sheet)) throw httpError(404, `Scorecard sheet "${sheet}" not found.`);
-  const range = await getUsedRange(sheet, { refresh: true });
+  const range = await getUsedRange(sheet, { refresh });
   const layout = analyzeSheet(range);
   if (!layout) throw httpError(422, `"${sheet}" doesn't have the scorecard layout (Perspectives … Lead).`);
   return { range, layout };
@@ -105,8 +106,8 @@ async function assignRowIds(sheet) {
 }
 
 // Rows for the "specific rows" picker: ID, row number, name (project or KPI), Lead and KRA
-async function listRows(sheet) {
-  const { range, layout } = await load(sheet);
+async function listRows(sheet, { refresh = true } = {}) {
+  const { range, layout } = await load(sheet, { refresh });
   const levels = hierarchyByRow(layout, range);
   const { columns } = layout;
   return dataRows(range, layout)
