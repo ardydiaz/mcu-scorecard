@@ -27,9 +27,26 @@ async function rowLabels(rules) {
   return labels;
 }
 
-// Rules with the subject's display name (and row names for Row ID rules), newest first
-async function listRules() {
-  const rules = await AccessRule.findAll({ order: [['createdAt', 'DESC']], raw: true });
+/**
+ * Who is managing rules: admins manage every rule; a Department Head ("manager" role) manages
+ * rules limited to their own department's rows. `user` comes from userService.getUserForAccess.
+ */
+function actorFrom(user) {
+  return {
+    id: user.id,
+    isAdmin: user.role === 'admin',
+    codes: (user.departments || []).map((d) => canonicalCode(d.code || d.name)).filter(Boolean),
+  };
+}
+
+const overlaps = (a = [], b = []) => a.some((x) => b.includes(x));
+// An admin manages every rule; a head only rules limited to (one of) their department(s)
+const canManage = (actor, rule) => actor.isAdmin || overlaps((rule.scopeCodes || []).map(canonicalCode), actor.codes);
+
+// Rules the actor may see, with the subject's name (and row names for Row ID rules), newest first
+async function listRules(actor) {
+  const all = await AccessRule.findAll({ order: [['createdAt', 'DESC']], raw: true });
+  const rules = all.filter((r) => canManage(actor, r));
   const users = await User.findAll({ attributes: ['id', 'email', 'displayName'], raw: true });
   const byId = new Map(users.map((u) => [u.id, u]));
   const labels = await rowLabels(rules);
@@ -46,7 +63,23 @@ async function listRules() {
   }));
 }
 
-async function validate(input) {
+// Extra checks for a Department Head: the rule is limited to their department's rows, Row IDs must
+// be rows their department leads, and Lead/Support values must be their own department codes
+async function checkHeadRule(rule, actor) {
+  if (!actor.codes.length) throw httpError(403, 'Your account is not linked to a department, so you cannot create access rules.');
+  if (['lead', 'support'].includes(rule.matchType) && rule.matchValues.some((c) => !actor.codes.includes(c))) {
+    throw httpError(403, `You can only use your own department code (${actor.codes.join(', ')}).`);
+  }
+  if (rule.matchType === 'rowId') {
+    const ownRows = new Set((await listRows(rule.sheet, { refresh: false }))
+      .filter((x) => overlaps(x.lead, actor.codes))
+      .map((x) => x.rowId.toUpperCase()));
+    const outside = rule.matchValues.filter((id) => !ownRows.has(id));
+    if (outside.length) throw httpError(403, `${outside.join(', ')} ${outside.length === 1 ? 'is not a row' : 'are not rows'} your department leads.`);
+  }
+}
+
+async function validate(input, actor) {
   const subjectType = input.subjectType;
   if (!['user', 'department'].includes(subjectType)) throw httpError(422, 'Choose who the rule is for: a user or a department.');
 
@@ -79,27 +112,35 @@ async function validate(input) {
 
   const permission = ['edit', 'hide'].includes(input.permission) ? input.permission : 'view';
   const note = String(input.note || '').trim().slice(0, 255) || null;
-  return { subjectType, userId, departmentCode, sheet, matchType, matchValues, permission, note };
+  const rule = { subjectType, userId, departmentCode, sheet, matchType, matchValues, permission, note };
+
+  if (actor.isAdmin) return { ...rule, scopeCodes: null };
+  await checkHeadRule(rule, actor);
+  return { ...rule, scopeCodes: actor.codes };
 }
 
-async function createRule(input, actingUser) {
-  return AccessRule.create({ ...(await validate(input)), createdBy: actingUser.id });
-}
-
-async function updateRule(id, input) {
+async function findManageable(id, actor) {
   const rule = await AccessRule.findByPk(id);
-  if (!rule) throw httpError(404, 'Access rule not found.');
+  if (!rule || !canManage(actor, rule)) throw httpError(404, 'Access rule not found.');
+  return rule;
+}
+
+async function createRule(input, actor) {
+  return AccessRule.create({ ...(await validate(input, actor)), createdBy: actor.id });
+}
+
+async function updateRule(id, input, actor) {
+  const rule = await findManageable(id, actor);
   const before = rule.toJSON();
-  await rule.update(await validate(input));
+  await rule.update(await validate(input, actor));
   return { rule, before };
 }
 
-async function deleteRule(id) {
-  const rule = await AccessRule.findByPk(id);
-  if (!rule) throw httpError(404, 'Access rule not found.');
+async function deleteRule(id, actor) {
+  const rule = await findManageable(id, actor);
   const before = rule.toJSON();
   await rule.destroy();
   return before;
 }
 
-module.exports = { MATCH_TYPES, listRules, createRule, updateRule, deleteRule };
+module.exports = { MATCH_TYPES, actorFrom, listRules, createRule, updateRule, deleteRule, validateRule: validate };

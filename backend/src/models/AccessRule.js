@@ -21,6 +21,9 @@ const AccessRule = sequelize.define('AccessRule', {
   permission: { type: DataTypes.ENUM('view', 'edit', 'hide'), allowNull: false, defaultValue: 'view' },
   note: { type: DataTypes.STRING(255) },
   createdBy: { type: DataTypes.INTEGER },
+  // Set on rules made by a Department Head: the rule only affects rows whose Lead includes one of
+  // these codes (their department), whatever it matches. NULL for admin rules (any row).
+  scopeCodes: { type: DataTypes.JSON, allowNull: true },
 }, {
   tableName: 'access_rules',
   indexes: [{ fields: ['subject_type', 'user_id'] }, { fields: ['subject_type', 'department_code'] }],

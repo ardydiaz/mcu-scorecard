@@ -6,8 +6,11 @@ const { validate } = require('../middleware/validation.middleware');
 
 const router = Router();
 
-// Managing departments is for admins only (detailed checks are in department.service)
-router.use(authenticate, authorize('admin'));
+// Managing departments is for admins only (detailed checks are in department.service);
+// Department Heads may read the list (for the "Who" choice on Access Rules)
+router.use(authenticate);
+router.get('/', authorize('admin', 'manager'), (req, res, next) => departments.list(req, res, next));
+router.use(authorize('admin'));
 
 const idParam = param('id').isInt({ min: 1 });
 const departmentBody = [
@@ -19,7 +22,6 @@ const departmentBody = [
   body('viewAll').optional().isBoolean({ strict: true }),
 ];
 
-router.get('/', departments.list);
 router.post('/', departmentBody, validate, departments.create);
 router.put('/:id', idParam, departmentBody, validate, departments.update);
 // Soft delete; POST /:id/restore brings the department back

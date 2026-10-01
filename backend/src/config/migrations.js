@@ -12,6 +12,8 @@ const ADDED_COLUMNS = [
   { table: 'departments', column: 'lead_codes', definition: { type: DataTypes.JSON, allowNull: true } },
   // Soft delete: set when a department is deleted on the Departments page (NULL = active)
   { table: 'departments', column: 'deleted_at', definition: { type: DataTypes.DATE, allowNull: true } },
+  // Rules made by a Department Head only affect rows led by these department codes (NULL = admin rule)
+  { table: 'access_rules', column: 'scope_codes', definition: { type: DataTypes.JSON, allowNull: true } },
 ];
 
 // Returns the "table.column" names that were added on this run

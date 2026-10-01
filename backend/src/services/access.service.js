@@ -27,6 +27,9 @@ const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || 
  */
 function ruleMatches(rule, facts) {
   if (rule.sheet && rule.sheet !== facts.sheet) return false;
+  // A Department Head's rule never reaches beyond rows their department leads
+  if (Array.isArray(rule.scopeCodes) && rule.scopeCodes.length
+    && !rule.scopeCodes.map(canonicalCode).some((c) => facts.lead.includes(c))) return false;
   const values = Array.isArray(rule.matchValues) ? rule.matchValues : [];
   switch (rule.matchType) {
     case 'lead': return values.map(canonicalCode).some((c) => facts.lead.includes(c));

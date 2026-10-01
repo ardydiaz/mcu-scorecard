@@ -7,8 +7,10 @@ const { validate } = require('../middleware/validation.middleware');
 
 const router = Router();
 
-// Managing access rules and Row IDs is for admins only (detailed checks in the services)
-router.use(authenticate, authorize('admin'));
+// Admins manage every rule and the Row IDs; Department Heads ("manager" role) manage rules
+// limited to their own department's rows (enforced in accessRule.service)
+router.use(authenticate, authorize('admin', 'manager'));
+const adminOnly = authorize('admin');
 
 const sheetQuery = query('sheet').isString().trim().isLength({ min: 1, max: 100 });
 const ruleBody = [
@@ -28,8 +30,8 @@ router.post('/', ruleBody, validate, rules.create);
 router.put('/:id', param('id').isInt({ min: 1 }), ruleBody, validate, rules.update);
 router.delete('/:id', param('id').isInt({ min: 1 }), validate, rules.remove);
 
-router.get('/row-ids', sheetQuery, validate, rules.rowIdStatus);
-router.post('/row-ids/assign', body('sheet').isString().trim().isLength({ min: 1, max: 100 }), validate, rules.assignRowIds);
+router.get('/row-ids', adminOnly, sheetQuery, validate, rules.rowIdStatus);
+router.post('/row-ids/assign', adminOnly, body('sheet').isString().trim().isLength({ min: 1, max: 100 }), validate, rules.assignRowIds);
 router.get('/rows', sheetQuery, validate, rules.rows);
 router.get('/options', sheetQuery, validate, rules.options);
 
