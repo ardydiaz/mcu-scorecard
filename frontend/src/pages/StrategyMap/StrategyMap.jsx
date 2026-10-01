@@ -8,6 +8,8 @@ import Loader from '../../components/common/Loader';
 import ErrorMessage from '../../components/common/ErrorMessage';
 import ExcelEmbed from '../../components/common/ExcelEmbed';
 import SheetSelect from '../../components/forms/SheetSelect';
+import WorkbookSelect from '../../components/forms/WorkbookSelect';
+import useSelectedWorkbook from '../../hooks/useSelectedWorkbook';
 import { buildSheet } from '../../utils/sheetBuilder';
 
 // Error for SheetGrid: readable message plus the HTTP status (403 = the row is read-only for this user)
@@ -53,12 +55,12 @@ function targetsSheet(data) {
 }
 
 // Summary of a scorecard sheet, shown as read-only Excel-style sheets (switch with the tabs)
-function MapSummary({ sheet }) {
-  const { data, loading, error } = useStrategyMap({ sheet });
+function MapSummary({ workbookId, sheet }) {
+  const { data, loading, error } = useStrategyMap({ workbook: workbookId, sheet });
   const [tab, setTab] = useState(SUMMARY_TAB);
   const sheets = useMemo(() => (data ? { [SUMMARY_TAB]: summarySheet(data), [TARGETS_TAB]: targetsSheet(data) } : null), [data]);
 
-  if (loading) return <Loader label="Reading the strategy map from Excel…" />;
+  if (loading) return <Loader center label="Reading the strategy map from Excel…" />;
   if (error) return <ErrorMessage>{error}</ErrorMessage>;
   if (!sheets) return null;
 
@@ -80,10 +82,10 @@ function MapSummary({ sheet }) {
 // Excel view of one sheet: sheets with a Lead column render as a grid filtered to the
 // user's department (Lead contains <code>); other sheets get an "Open in Excel" card.
 // The grid data is loaded by the page, whose toolbar holds the Lead filter and Refresh button.
-function SheetView({ sheet, workbook, gridState, sheets, onSheetChange }) {
+function SheetView({ workbookId, sheet, workbook, gridState, sheets, onSheetChange }) {
   const { data: grid, loading, error } = gridState;
 
-  if (loading) return <Loader label={`Reading “${sheet}” from Excel…`} />;
+  if (loading) return <Loader center label={`Reading “${sheet}” from Excel…`} />;
   if (error) return <ErrorMessage>{error}</ErrorMessage>;
   if (!grid) return null;
   if (!grid.supported) return <ExcelEmbed workbook={workbook} sheet={sheet} />;
@@ -95,6 +97,7 @@ function SheetView({ sheet, workbook, gridState, sheets, onSheetChange }) {
   async function saveCell({ row, col, value, previous }) {
     try {
       return await updateGridCell({
+        workbook: workbookId,
         sheet: grid.sheet,
         row: row.row,
         column: grid.headers[col].letter,
@@ -112,6 +115,7 @@ function SheetView({ sheet, workbook, gridState, sheets, onSheetChange }) {
   async function mergeCells({ row, endRow, identities, startCol, endCol, merge, center, confirm }) {
     try {
       return await mergeGridCells({
+        workbook: workbookId,
         sheet: grid.sheet,
         row: row.row,
         endRow,
@@ -133,7 +137,7 @@ function SheetView({ sheet, workbook, gridState, sheets, onSheetChange }) {
   // Hides/unhides rows in the user's own view (saved to their account)
   async function hideRows({ keys, hidden, all }) {
     try {
-      return await setHiddenRows({ sheet: grid.sheet, keys, hidden, all });
+      return await setHiddenRows({ workbook: workbookId, sheet: grid.sheet, keys, hidden, all });
     } catch (err) {
       throw toGridError(err);
     }
@@ -143,6 +147,7 @@ function SheetView({ sheet, workbook, gridState, sheets, onSheetChange }) {
   async function formatCell({ row, col, format }) {
     try {
       return await formatGridCell({
+        workbook: workbookId,
         sheet: grid.sheet,
         row: row.row,
         column: grid.headers[col].letter,
@@ -193,9 +198,11 @@ export default function StrategyMap() {
   const view = params.get('view') === 'summary' ? 'summary' : 'excel';
   const sheetParam = params.get('sheet') || '';
 
-  const allSheets = useAllSheets();
-  const scorecardSheets = useScorecardSheets();
-  const workbook = useWorkbook();
+  const files = useSelectedWorkbook();
+  const workbookId = files.workbook;
+  const allSheets = useAllSheets({ workbook: workbookId });
+  const scorecardSheets = useScorecardSheets({ workbook: workbookId });
+  const workbook = useWorkbook({ workbook: workbookId });
 
   const sheetList = (view === 'excel' ? allSheets.data : scorecardSheets.data) || [];
   // Keep the chosen sheet if it's in this view's list; otherwise start on the current scorecard sheet
@@ -214,7 +221,7 @@ export default function StrategyMap() {
   const listsLoading = allSheets.loading || scorecardSheets.loading;
   const department = params.get('department') || '';
   const showGrid = !listsLoading && view === 'excel' && !!sheet;
-  const gridState = useSheetGrid({ sheet: showGrid ? sheet : '', department });
+  const gridState = useSheetGrid({ workbook: workbookId, sheet: showGrid ? sheet : '', department });
   const grid = showGrid && gridState.data?.supported ? gridState.data : null;
 
   return (
@@ -238,6 +245,11 @@ export default function StrategyMap() {
             Summary
           </button>
         </div>
+        <WorkbookSelect
+          workbooks={files.workbooks}
+          value={workbookId}
+          onChange={(id) => update({ workbook: id, sheet: '', department: '' })}
+        />
         <SheetSelect sheets={sheetList} value={sheet} onChange={(name) => update({ sheet: name, department: '' })} />
         {grid?.canViewAll && (
           <label className="field">
@@ -262,11 +274,12 @@ export default function StrategyMap() {
         )}
       </div>
 
-      <ErrorMessage>{allSheets.error || scorecardSheets.error || workbook.error}</ErrorMessage>
-      {listsLoading && <Loader />}
+      <ErrorMessage>{files.error || allSheets.error || scorecardSheets.error || workbook.error}</ErrorMessage>
+      {listsLoading && <Loader center label="Opening the workbook…" />}
 
       {showGrid && (
         <SheetView
+          workbookId={workbookId}
           sheet={sheet}
           workbook={workbook.data}
           gridState={gridState}
@@ -274,7 +287,7 @@ export default function StrategyMap() {
           onSheetChange={(name) => update({ sheet: name, department: '' })}
         />
       )}
-      {!listsLoading && view === 'summary' && sheet && <MapSummary sheet={sheet} />}
+      {!listsLoading && view === 'summary' && sheet && <MapSummary workbookId={workbookId} sheet={sheet} />}
     </div>
   );
 }

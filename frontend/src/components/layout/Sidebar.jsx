@@ -12,6 +12,7 @@ const links = [
 const adminLinks = [
   { to: '/users', label: 'Users', roles: ['admin'] },
   { to: '/departments', label: 'Departments', roles: ['admin'] },
+  { to: '/workbooks', label: 'Workbooks', roles: ['admin'] },
   { to: '/access-rules', label: 'Access Rules', roles: ['admin', 'manager'] },
   { to: '/audit-logs', label: 'Audit Logs', roles: ['admin'] },
 ];

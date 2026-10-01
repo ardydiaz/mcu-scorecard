@@ -14,8 +14,9 @@ export default function Login() {
   return (
     <div className="login">
       <div className="login__card">
-        <img src="/favicon.svg" alt="" width="56" height="56" />
-        <h1>MCU Scorecard</h1>
+        <img src="/mcu-logo.png" alt="Manila Central University" width="112" height="112" className="login__logo" />
+        <p className="login__eyebrow">Manila Central University</p>
+        <h1>Strategy Scorecard</h1>
         <p className="muted">Sign in with your MCU Microsoft 365 account to continue.</p>
         <ErrorMessage>{error}</ErrorMessage>
         <button

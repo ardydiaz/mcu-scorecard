@@ -6,6 +6,8 @@ import SheetGrid from '../../components/tables/SheetGrid';
 import Loader from '../../components/common/Loader';
 import ErrorMessage from '../../components/common/ErrorMessage';
 import SheetSelect from '../../components/forms/SheetSelect';
+import WorkbookSelect from '../../components/forms/WorkbookSelect';
+import useSelectedWorkbook from '../../hooks/useSelectedWorkbook';
 import { plural } from '../../utils/format';
 
 const REPORT_TAB = 'Scorecard Report';
@@ -117,18 +119,23 @@ export default function StrategyScorecard() {
   const department = params.get('department') || '';
   const [query, setQuery] = useState('');
 
-  const sheets = useScorecardSheets();
-  const { data, loading, error, reload } = useScorecard({ sheet, department });
+  const files = useSelectedWorkbook();
+  const workbook = files.workbook;
+  const sheets = useScorecardSheets({ workbook });
+  const { data, loading, error, reload } = useScorecard({ workbook, sheet, department });
 
   const perspectives = useMemo(() => (data ? searchScorecard(data.perspectives, query) : []), [data, query]);
   const report = useMemo(() => (data ? reportSheet(data, perspectives) : null), [data, perspectives]);
 
-  function updateParam(key, value) {
+  function updateParams(changes) {
     const next = new URLSearchParams(params);
-    if (value) next.set(key, value);
-    else next.delete(key);
+    for (const [key, value] of Object.entries(changes)) {
+      if (value) next.set(key, value);
+      else next.delete(key);
+    }
     setParams(next, { replace: true });
   }
+  const updateParam = (key, value) => updateParams({ [key]: value });
 
   const noDepartment = data && !data.canViewAll && data.viewingDepartments.length === 0;
 
@@ -145,6 +152,11 @@ export default function StrategyScorecard() {
       </div>
 
       <div className="toolbar">
+        <WorkbookSelect
+          workbooks={files.workbooks}
+          value={workbook}
+          onChange={(id) => updateParams({ workbook: id, sheet: '', department: '' })}
+        />
         <SheetSelect
           sheets={sheets.data || []}
           value={data?.sheet || sheet}
@@ -173,8 +185,8 @@ export default function StrategyScorecard() {
         </button>
       </div>
 
-      <ErrorMessage>{error || sheets.error}</ErrorMessage>
-      {loading && <Loader label="Reading the scorecard from Excel…" />}
+      <ErrorMessage>{files.error || error || sheets.error}</ErrorMessage>
+      {loading && <Loader center label="Reading the scorecard from Excel…" />}
 
       {!loading && noDepartment && (
         <div className="alert alert--info">

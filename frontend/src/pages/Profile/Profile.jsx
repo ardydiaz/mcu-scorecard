@@ -1,6 +1,7 @@
 import useAuth from '../../hooks/useAuth';
 import Card from '../../components/common/Card';
-import { capitalize, formatDate, initials } from '../../utils/format';
+import Avatar from '../../components/common/Avatar';
+import { capitalize, formatDate } from '../../utils/format';
 
 export default function Profile() {
   const { user } = useAuth();
@@ -19,7 +20,7 @@ export default function Profile() {
 
       <Card>
         <div className="profile">
-          <span className="avatar avatar--lg">{initials(user.displayName || user.email)}</span>
+          <Avatar user={user} size="lg" />
           <div>
             <h2 className="profile__name">{user.displayName || user.email}</h2>
             <p className="muted">{user.email}</p>

@@ -6,7 +6,8 @@ import Card from '../../components/common/Card';
 import Loader from '../../components/common/Loader';
 import ErrorMessage from '../../components/common/ErrorMessage';
 import Pagination from '../../components/common/Pagination';
-import { formatDate, initials } from '../../utils/format';
+import Avatar from '../../components/common/Avatar';
+import { formatDate } from '../../utils/format';
 
 const DEFAULT_PAGE_SIZE = 50;
 // "manager" is shown as Department Head: manages access rules for their own department's rows
@@ -141,7 +142,7 @@ export default function Users() {
                     <tr key={u.id} className={u.isActive ? '' : 'user-table__inactive'}>
                       <td>
                         <div className="user-cell">
-                          <span className="avatar">{initials(u.displayName || u.email)}</span>
+                          <Avatar user={u} />
                           <div>
                             <div className="user-cell__name">
                               {u.displayName || u.email}

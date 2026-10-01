@@ -10,6 +10,7 @@ import Departments from './pages/Departments/Departments';
 import Users from './pages/Users/Users';
 import AuditLogs from './pages/AuditLogs/AuditLogs';
 import AccessRules from './pages/AccessRules/AccessRules';
+import Workbooks from './pages/Workbooks/Workbooks';
 
 export default function App() {
   return (
@@ -29,6 +30,7 @@ export default function App() {
         <Route element={<AppLayout />}>
           <Route path="/users" element={<Users />} />
           <Route path="/departments" element={<Departments />} />
+          <Route path="/workbooks" element={<Workbooks />} />
           <Route path="/audit-logs" element={<AuditLogs />} />
         </Route>
       </Route>

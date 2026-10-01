@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import useAuth from '../../hooks/useAuth';
-import { initials } from '../../utils/format';
+import Avatar from '../common/Avatar';
 
 export default function Header({ onMenuClick }) {
   const { user, logout } = useAuth();
@@ -12,7 +12,7 @@ export default function Header({ onMenuClick }) {
       </button>
       <div className="header__spacer" />
       <Link to="/profile" className="header__user">
-        <span className="avatar">{initials(user?.displayName || user?.email)}</span>
+        <Avatar user={user} />
         <span className="header__name">{user?.displayName || user?.email}</span>
       </Link>
       <button type="button" className="btn btn--ghost" onClick={logout}>

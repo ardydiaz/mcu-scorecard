@@ -5,7 +5,7 @@ import {
 import { getUsers } from '../../api/userApi';
 import useAuth from '../../hooks/useAuth';
 import { getDepartments } from '../../api/departmentApi';
-import { getSheets } from '../../api/strategyApi';
+import { getSheets, getWorkbooks } from '../../api/strategyApi';
 import { getErrorMessage } from '../../api/axios';
 import Card from '../../components/common/Card';
 import Loader from '../../components/common/Loader';
@@ -28,8 +28,23 @@ const PERMISSIONS = [
 ];
 
 const EMPTY_RULE = {
-  subjectType: 'department', userId: '', departmentCode: '', sheet: '', matchType: 'rowId', matchValues: [], permission: 'view', note: '',
+  subjectType: 'department', userId: '', departmentCode: '', workbookId: '', sheet: '', matchType: 'rowId', matchValues: [], permission: 'view', note: '',
 };
+
+const fileName = (w) => w.name.replace(/\.xlsx$/i, '');
+const STATUS_SUFFIX = { draft: ' (Draft)', hidden: ' (Hidden)' };
+
+// Visible scorecard sheets of one file (id '' = the default file); null while loading
+function useFileSheets(workbook) {
+  const [sheets, setSheets] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    setSheets(null);
+    getSheets({ workbook }).then((s) => { if (!cancelled) setSheets(s); }).catch(() => { if (!cancelled) setSheets([]); });
+    return () => { cancelled = true; };
+  }, [workbook]);
+  return sheets;
+}
 
 // Searchable list of checkboxes; `items` are { value, label, hint }. The values already chosen when
 // the list opens (e.g. editing a rule) are shown first and as chips, so they're easy to find.
@@ -92,22 +107,35 @@ function CheckList({ items, selected, onChange, emptyText }) {
   );
 }
 
-// `onDelete` is given when editing an existing rule
-function RuleForm({ initial, sheets, users, departments, saving, error, onSave, onCancel, onDelete }) {
+// `onDelete` is given when editing an existing rule. `defaultWorkbook` is the id of the file that
+// opens first; it supplies the sheets and values to choose from for "All files" rules.
+function RuleForm({ initial, workbooks, defaultWorkbook, users, departments, saving, error, onSave, onCancel, onDelete }) {
   const [rule, setRule] = useState(initial);
   const [options, setOptions] = useState(null);
   const [rows, setRows] = useState(null);
   const set = (key, value) => setRule((r) => ({ ...r, [key]: value }));
 
-  // Values to choose from come from the chosen sheet (or the current one for "All sheets")
-  const sourceSheet = rule.sheet || sheets[0]?.name;
+  // Sheets and values come from the chosen file (or the default file for "All files")
+  const sourceWorkbook = rule.workbookId || defaultWorkbook;
+  const sheets = useFileSheets(sourceWorkbook);
+  const sheetList = sheets || [];
+
+  // Row ID rules need one sheet of the file: pick its first sheet when none (or another file's) is chosen
+  useEffect(() => {
+    if (sheets && rule.matchType === 'rowId' && !sheets.some((s) => s.name === rule.sheet)) {
+      setRule((r) => ({ ...r, sheet: sheets[0]?.name || '', matchValues: [] }));
+    }
+  }, [sheets, rule.matchType, rule.sheet]);
+
+  // Values to choose from come from the chosen sheet (or the file's first one for "All sheets")
+  const sourceSheet = sheets && (sheets.some((s) => s.name === rule.sheet) ? rule.sheet : sheets[0]?.name);
   useEffect(() => {
     if (!sourceSheet) return;
     setOptions(null);
     setRows(null);
-    getRuleOptions(sourceSheet).then(setOptions).catch(() => setOptions({}));
-    if (rule.sheet) getRuleRows(rule.sheet).then(setRows).catch(() => setRows([]));
-  }, [sourceSheet, rule.sheet]);
+    getRuleOptions({ workbook: sourceWorkbook, sheet: sourceSheet }).then(setOptions).catch(() => setOptions({}));
+    if (rule.sheet) getRuleRows({ workbook: sourceWorkbook, sheet: rule.sheet }).then(setRows).catch(() => setRows([]));
+  }, [sourceWorkbook, sourceSheet, rule.sheet]);
 
   const items = useMemo(() => {
     if (rule.matchType === 'rowId') {
@@ -122,7 +150,15 @@ function RuleForm({ initial, sheets, users, departments, saving, error, onSave, 
     return all.map((v) => ({ value: v, label: v, hint: list.includes(v) ? '' : '(not in this sheet)' }));
   }, [rule.matchType, rule.matchValues, options, rows]);
 
-  const changeType = (type) => setRule((r) => ({ ...r, matchType: type, matchValues: [], sheet: type === 'rowId' && !r.sheet ? sheets[0]?.name || '' : r.sheet }));
+  // Row IDs are per file and sheet, so a Row ID rule always names both; other rules start on "All files"
+  const changeType = (type) => setRule((r) => ({
+    ...r,
+    matchType: type,
+    matchValues: [],
+    workbookId: type === 'rowId' ? r.workbookId || defaultWorkbook : r.matchType === 'rowId' ? '' : r.workbookId,
+    sheet: type === 'rowId' && !r.sheet ? sheetList[0]?.name || '' : r.sheet,
+  }));
+  const changeWorkbook = (id) => setRule((r) => ({ ...r, workbookId: id, ...(r.matchType === 'rowId' && { matchValues: [] }) }));
 
   function submit(e) {
     e.preventDefault();
@@ -130,6 +166,7 @@ function RuleForm({ initial, sheets, users, departments, saving, error, onSave, 
       subjectType: rule.subjectType,
       userId: rule.subjectType === 'user' ? Number(rule.userId) || null : null,
       departmentCode: rule.subjectType === 'department' ? rule.departmentCode || null : null,
+      workbookId: Number(rule.workbookId || (rule.matchType === 'rowId' ? defaultWorkbook : 0)) || null,
       sheet: rule.sheet || null,
       matchType: rule.matchType,
       matchValues: rule.matchValues,
@@ -163,11 +200,25 @@ function RuleForm({ initial, sheets, users, departments, saving, error, onSave, 
           )}
         </div>
 
+        {workbooks.length > 1 && (
+          <label className="form-field">
+            <span>File</span>
+            <select className="input" value={rule.workbookId} onChange={(e) => changeWorkbook(e.target.value)}>
+              {rule.matchType !== 'rowId' && <option value="">All files</option>}
+              {workbooks.map((w) => (
+                <option key={w.id} value={String(w.id)}>{fileName(w)}{STATUS_SUFFIX[w.status] || ''}</option>
+              ))}
+            </select>
+            <small>{rule.matchType === 'rowId' ? 'Row IDs belong to one file.' : 'Leave on “All files” to apply in every scorecard file.'}</small>
+          </label>
+        )}
+
         <label className="form-field">
           <span>Sheet</span>
           <select className="input" value={rule.sheet} onChange={(e) => setRule((r) => ({ ...r, sheet: e.target.value, ...(r.matchType === 'rowId' && { matchValues: [] }) }))}>
             {rule.matchType !== 'rowId' && <option value="">All scorecard sheets</option>}
-            {sheets.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+            {sheetList.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+            {rule.sheet && sheets && !sheetList.some((s) => s.name === rule.sheet) && <option value={rule.sheet}>{rule.sheet}</option>}
           </select>
           <small>{rule.matchType === 'rowId' ? 'Row IDs belong to one sheet.' : 'Leave on “All” to apply in every year’s sheet.'}</small>
         </label>
@@ -243,20 +294,26 @@ function RuleForm({ initial, sheets, users, departments, saving, error, onSave, 
   );
 }
 
-function RowIdPanel({ sheets }) {
+function RowIdPanel({ workbooks, defaultWorkbook }) {
+  const [workbook, setWorkbook] = useState('');
+  const fileId = workbook || defaultWorkbook;
+  const fileSheets = useFileSheets(fileId);
+  const sheets = useMemo(() => fileSheets || [], [fileSheets]);
   const [sheet, setSheet] = useState('');
   const [status, setStatus] = useState(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => { if (!sheet && sheets[0]) setSheet(sheets[0].name); }, [sheets, sheet]);
+  useEffect(() => {
+    if (sheets.length && !sheets.some((s) => s.name === sheet)) setSheet(sheets[0].name);
+  }, [sheets, sheet]);
   const load = useCallback(() => {
-    if (!sheet) return;
+    if (!sheets.some((s) => s.name === sheet)) return;
     setStatus(null);
     setError('');
-    getRowIdStatus(sheet).then(setStatus).catch((err) => setError(getErrorMessage(err)));
-  }, [sheet]);
+    getRowIdStatus({ workbook: fileId, sheet }).then(setStatus).catch((err) => setError(getErrorMessage(err)));
+  }, [fileId, sheet, sheets]);
   useEffect(load, [load]);
 
   async function assign() {
@@ -268,7 +325,7 @@ function RowIdPanel({ sheets }) {
     setBusy(true);
     setNotice('');
     try {
-      const result = await assignRowIds(sheet);
+      const result = await assignRowIds({ workbook: fileId, sheet });
       setNotice(`${result.assigned} Row ID(s) assigned in column ${result.column}${result.createdColumn ? ' (created and hidden)' : ''}.`);
       load();
     } catch (err) {
@@ -287,6 +344,14 @@ function RowIdPanel({ sheets }) {
         use these IDs, so they stay on the right rows even when rows are inserted or moved in Excel.
       </p>
       <div className="toolbar">
+        {workbooks.length > 1 && (
+          <label className="field">
+            <span className="field__label">File</span>
+            <select className="input" value={fileId} onChange={(e) => { setWorkbook(e.target.value); setNotice(''); }}>
+              {workbooks.map((w) => <option key={w.id} value={String(w.id)}>{fileName(w)}{STATUS_SUFFIX[w.status] || ''}</option>)}
+            </select>
+          </label>
+        )}
         <label className="field">
           <span className="field__label">Sheet</span>
           <select className="input" value={sheet} onChange={(e) => setSheet(e.target.value)}>
@@ -333,7 +398,7 @@ export default function AccessRules() {
   const isAdmin = user?.role === 'admin';
   const myCodes = (user?.departments || []).map((d) => d.code).filter(Boolean);
   const [rules, setRules] = useState(null);
-  const [sheets, setSheets] = useState([]);
+  const [workbooks, setWorkbooks] = useState(null);
   const [users, setUsers] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [editing, setEditing] = useState(null); // 'new' | rule id
@@ -347,7 +412,7 @@ export default function AccessRules() {
   }, []);
   useEffect(() => {
     load();
-    getSheets().then(setSheets).catch(() => {});
+    getWorkbooks().then(setWorkbooks).catch((err) => { setWorkbooks([]); setError(getErrorMessage(err)); });
     getUsers({ limit: 200, status: 'active' }).then((r) => setUsers(r.data)).catch(() => {});
     getDepartments().then((d) => setDepartments(d.filter((x) => !x.deletedAt))).catch(() => {});
   }, [load]);
@@ -389,6 +454,7 @@ export default function AccessRules() {
     subjectType: r.subjectType,
     userId: r.userId ? String(r.userId) : '',
     departmentCode: r.departmentCode || '',
+    workbookId: r.workbookId ? String(r.workbookId) : '',
     sheet: r.sheet || '',
     matchType: r.matchType,
     matchValues: r.matchValues || [],
@@ -396,6 +462,9 @@ export default function AccessRules() {
     note: r.note || '',
   });
   const start = (id) => { setEditing(id); setFormError(''); setNotice(''); };
+  const fileList = workbooks || [];
+  const defaultWorkbook = String(fileList.find((w) => w.isDefault)?.id ?? fileList[0]?.id ?? '');
+  const manyFiles = fileList.length > 1;
 
   return (
     <div className="page">
@@ -410,7 +479,7 @@ export default function AccessRules() {
         </p>
       </div>
 
-      {isAdmin ? <RowIdPanel sheets={sheets} /> : (
+      {isAdmin ? (workbooks && <RowIdPanel workbooks={fileList} defaultWorkbook={defaultWorkbook} />) : (
         <div className="alert alert--info">
           As <strong>Department Head</strong>, your rules only affect rows led by{' '}
           <strong>{myCodes.join(', ') || 'your department'}</strong>, even if they match more (e.g. a whole Perspective).
@@ -424,14 +493,14 @@ export default function AccessRules() {
       {editing === 'new' ? (
         <Card title="New access rule">
           <RuleForm
-            initial={{ ...EMPTY_RULE, sheet: sheets[0]?.name || '' }}
-            sheets={sheets} users={users} departments={departments}
+            initial={{ ...EMPTY_RULE, workbookId: defaultWorkbook }}
+            workbooks={fileList} defaultWorkbook={defaultWorkbook} users={users} departments={departments}
             saving={saving} error={formError} onSave={save} onCancel={() => setEditing(null)}
           />
         </Card>
       ) : (
         <div className="toolbar">
-          <button type="button" className="btn btn--primary" onClick={() => start('new')} disabled={!sheets.length}>+ Add rule</button>
+          <button type="button" className="btn btn--primary" onClick={() => start('new')} disabled={!fileList.length}>+ Add rule</button>
         </div>
       )}
 
@@ -442,7 +511,7 @@ export default function AccessRules() {
               <thead>
                 <tr>
                   <th>Who</th>
-                  <th>Sheet</th>
+                  <th>{manyFiles ? 'File / Sheet' : 'Sheet'}</th>
                   <th>Rows</th>
                   <th>Access</th>
                   <th>Note</th>
@@ -456,7 +525,7 @@ export default function AccessRules() {
                     <td colSpan={6}>
                       <RuleForm
                         initial={toForm(r)}
-                        sheets={sheets} users={users} departments={departments}
+                        workbooks={fileList} defaultWorkbook={defaultWorkbook} users={users} departments={departments}
                         saving={saving} error={formError} onSave={save} onCancel={() => setEditing(null)}
                         onDelete={() => remove(r)}
                       />
@@ -473,7 +542,12 @@ export default function AccessRules() {
                         </div>
                       )}
                     </td>
-                    <td>{r.sheet || <span className="muted">All sheets</span>}</td>
+                    <td>
+                      {manyFiles && (
+                        <div className="dept-table__desc">{r.workbookName ? r.workbookName.replace(/\.xlsx$/i, '') : <span className="muted">All files</span>}</div>
+                      )}
+                      {r.sheet || <span className="muted">All sheets</span>}
+                    </td>
                     <td>
                       <div>{matchLabel(r.matchType)}</div>
                       {r.rows ? (
