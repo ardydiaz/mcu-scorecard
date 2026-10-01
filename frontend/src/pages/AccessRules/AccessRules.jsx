@@ -30,20 +30,44 @@ const EMPTY_RULE = {
   subjectType: 'department', userId: '', departmentCode: '', sheet: '', matchType: 'rowId', matchValues: [], permission: 'view', note: '',
 };
 
-// Searchable list of checkboxes; `items` are { value, label, hint }
+// Searchable list of checkboxes; `items` are { value, label, hint }. The values already chosen when
+// the list opens (e.g. editing a rule) are shown first and as chips, so they're easy to find.
 function CheckList({ items, selected, onChange, emptyText }) {
   const [query, setQuery] = useState('');
+  const [selectedOnly, setSelectedOnly] = useState(false);
+  const [pinned] = useState(() => new Set(selected)); // chosen when opened: listed first, not re-sorted on each click
   const chosen = new Set(selected);
   const q = query.trim().toLowerCase();
-  const shown = q ? items.filter((i) => `${i.value} ${i.label} ${i.hint || ''}`.toLowerCase().includes(q)) : items;
+  const ordered = useMemo(
+    () => [...items.filter((i) => pinned.has(i.value)), ...items.filter((i) => !pinned.has(i.value))],
+    [items, pinned]
+  );
+  const shown = ordered
+    .filter((i) => !selectedOnly || chosen.has(i.value))
+    .filter((i) => !q || `${i.value} ${i.label} ${i.hint || ''}`.toLowerCase().includes(q));
   const toggle = (value) => onChange(chosen.has(value) ? selected.filter((v) => v !== value) : [...selected, value]);
+  const labelOf = (value) => items.find((i) => i.value === value)?.label || value;
 
   if (!items.length) return <p className="muted">{emptyText}</p>;
   return (
     <div className="checklist">
+      {selected.length > 0 && (
+        <div className="checklist__chips" aria-label="Selected">
+          {selected.map((value) => (
+            <span key={value} className="chip">
+              {labelOf(value)}
+              <button type="button" className="chip__remove" onClick={() => toggle(value)} aria-label={`Remove ${value}`}>✕</button>
+            </span>
+          ))}
+        </div>
+      )}
       <div className="checklist__bar">
         <input type="search" className="input input--sm" placeholder="Search…" value={query} onChange={(e) => setQuery(e.target.value)} />
         <span className="muted">{selected.length} selected</span>
+        <label className="checklist__toggle">
+          <input type="checkbox" checked={selectedOnly} onChange={(e) => setSelectedOnly(e.target.checked)} />
+          Selected only
+        </label>
         {shown.length > 0 && (
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => onChange([...new Set([...selected, ...shown.map((i) => i.value)])])}>
             Select shown
@@ -61,7 +85,7 @@ function CheckList({ items, selected, onChange, emptyText }) {
             </span>
           </label>
         ))}
-        {!shown.length && <p className="muted">Nothing matches “{query}”.</p>}
+        {!shown.length && <p className="muted">{selectedOnly && !selected.length ? 'Nothing selected yet.' : `Nothing matches “${query}”.`}</p>}
       </div>
     </div>
   );
@@ -410,9 +434,20 @@ export default function AccessRules() {
                     <td>{r.sheet || <span className="muted">All sheets</span>}</td>
                     <td>
                       <div>{matchLabel(r.matchType)}</div>
-                      <div className="muted dept-table__desc">
-                        {r.matchValues.slice(0, 6).join(', ')}{r.matchValues.length > 6 ? ` +${r.matchValues.length - 6} more` : ''}
-                      </div>
+                      {r.rows ? (
+                        <ul className="rule-rows">
+                          {r.rows.slice(0, 5).map((x) => (
+                            <li key={x.rowId}>
+                              <strong>{x.rowId}</strong> · {x.name}{x.row ? <span className="muted"> (Row {x.row})</span> : null}
+                            </li>
+                          ))}
+                          {r.rows.length > 5 && <li className="muted">+{r.rows.length - 5} more</li>}
+                        </ul>
+                      ) : (
+                        <div className="muted dept-table__desc">
+                          {r.matchValues.slice(0, 6).join(', ')}{r.matchValues.length > 6 ? ` +${r.matchValues.length - 6} more` : ''}
+                        </div>
+                      )}
                     </td>
                     <td>
                       <span className={`status-pill ${r.permission === 'edit' ? 'status-pill--on' : r.permission === 'hide' ? 'status-pill--off' : ''}`}>

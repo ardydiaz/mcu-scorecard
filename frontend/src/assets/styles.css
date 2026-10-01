@@ -865,6 +865,23 @@ a.btn { text-decoration: none; }
 .checklist__item input { margin-top: 3px; }
 .checklist__item small { font-size: 12px; }
 .checklist .muted { padding: 8px 12px; }
+.checklist__chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 4px 3px 10px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+.chip__remove { border: 0; background: none; color: inherit; cursor: pointer; font-size: 11px; padding: 2px 5px; border-radius: 50%; }
+.chip__remove:hover { background: rgba(0, 0, 0, 0.1); }
+.checklist__toggle { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.rule-rows { margin: 2px 0 0; padding-left: 16px; font-size: 12px; }
 .rowid-status { margin: 4px 0 0; padding-left: 18px; font-size: 14px; display: flex; flex-direction: column; gap: 4px; }
 .rowid-status--warn { color: #9a5b00; }
 .rowid-status--ok { color: var(--success-text); }
