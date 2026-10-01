@@ -10,7 +10,7 @@ const {
   invalidateScorecard,
 } = require('./scorecard.service');
 const { departmentOptions } = require('../config/departments');
-const { accessFor, canEditRow } = require('./access.service');
+const { accessFor, rowAccess, rowVisible } = require('./access.service');
 const { getSheetFormat, updateCachedStyle, updateCachedMerge } = require('./format.service');
 const logger = require('../utils/logger');
 
@@ -40,10 +40,11 @@ function analyzeSheet(range) {
   const firstRow = parseInt(start[2], 10);
   const firstCol = letterToIndex(start[1]);
 
-  // Columns up to the last one with a header; later columns have no heading in the sheet
+  // Columns up to the last one with a header; later columns have no heading in the sheet.
+  // The hidden Row ID column (far to the right) isn't shown in the grid.
   const headerCells = values[headerRow];
   let lastCol = headerCells.length - 1;
-  while (lastCol > 0 && (headerCells[lastCol] === '' || headerCells[lastCol] === null)) lastCol--;
+  while (lastCol > 0 && (headerCells[lastCol] === '' || headerCells[lastCol] === null || lastCol === columns.rowId)) lastCol--;
 
   const statusLabels = new Map(statuses.map((s) => [s.index, s.label]));
   const projectStart = Math.min(columns.tier ?? Infinity, columns.project ?? Infinity);
@@ -66,6 +67,48 @@ function analyzeSheet(range) {
 function rowCells(layout, range, r) {
   const cell = cellReader(range.values[r], range.text[r]);
   return layout.headers.map((_, i) => cell(i));
+}
+
+// The row's permanent ID from the hidden Row ID column ('' when the sheet has none yet)
+function rowIdAt(layout, range, r) {
+  if (layout.columns.rowId === undefined) return '';
+  return oneLine(cellReader(range.values[r], range.text[r])(layout.columns.rowId));
+}
+
+/**
+ * Perspective / Objective / KRA for every sheet row, carried down from the row where each starts
+ * (the sheet only fills them in on the first row of a group). Returns an array indexed like range.values.
+ */
+function hierarchyByRow(layout, range) {
+  const { columns, headerRow } = layout;
+  const levels = ['perspective', 'objective', 'kra'].filter((k) => columns[k] !== undefined);
+  const current = {};
+  const out = [];
+  for (let r = headerRow + 1; r < range.values.length; r++) {
+    const cell = cellReader(range.values[r], range.text[r]);
+    levels.forEach((level, i) => {
+      const value = oneLine(cell(columns[level]));
+      if (value) {
+        current[level] = value;
+        levels.slice(i + 1).forEach((below) => delete current[below]);
+      }
+    });
+    out[r] = { ...current };
+  }
+  return out;
+}
+
+// What access rules match on for sheet row r (see access.service ruleMatches)
+function rowFacts(sheet, layout, range, r, hierarchy, cells = rowCells(layout, range, r)) {
+  return {
+    sheet,
+    lead: parseCodes(cells[layout.columns.lead]),
+    support: parseCodes(cells[layout.columns.support]),
+    perspective: hierarchy[r]?.perspective || '',
+    objective: hierarchy[r]?.objective || '',
+    kra: hierarchy[r]?.kra || '',
+    rowId: rowIdAt(layout, range, r),
+  };
 }
 
 // Merged areas starting on an Excel row, as grid columns: [{ col, span, rows }] where `rows` is
@@ -115,7 +158,7 @@ async function getGridForUser(user, { sheet, department, refresh = false } = {})
   const { columns, headers, headerRow, firstRow, hierarchy, kpiColumns } = layout;
   const access = accessFor(user, department);
   const { canViewAll, viewing } = access;
-  const wanted = viewing && new Set(viewing);
+  const levels = hierarchyByRow(layout, range);
 
   const carried = {};
   const rows = [];
@@ -140,7 +183,8 @@ async function getGridForUser(user, { sheet, department, refresh = false } = {})
     if (isKpiRow) kpiColumns.forEach((k) => { carried[k] = cells[k]; });
 
     lead.forEach((c) => leadCodes.add(c));
-    if (wanted && !lead.some((c) => wanted.has(c))) continue;
+    const facts = rowFacts(sheet, layout, range, r, levels, cells);
+    if (!rowVisible(access, facts)) continue;
 
     const identity = rowIdentity(layout, cells);
     const inherited = [];
@@ -156,8 +200,11 @@ async function getGridForUser(user, { sheet, department, refresh = false } = {})
       inherited,
       formulas: formulaColumns(layout, range, r),
       identity,
-      // View-all departments (EXECOM) see rows they don't lead; those are read-only for them
-      editable: canEditRow(access, lead),
+      rowId: facts.rowId,
+      // Stable key for per-user settings such as hidden rows (Row ID when the sheet has them)
+      key: facts.rowId ? `id:${facts.rowId}` : `name:${identity.lead}|${identity.name}`,
+      // Rows shown but not editable: view-only access rules, or view-all users (EXECOM) on others' rows
+      editable: rowAccess(access, facts).edit,
     });
   }
 
@@ -201,6 +248,8 @@ async function getGridForUser(user, { sheet, department, refresh = false } = {})
     editable: true,
     canViewAll,
     viewingDepartments: viewing || [],
+    // Access rules that add rows beyond the user's own Lead rows
+    accessRuleCount: canViewAll ? 0 : access.rules.length,
     departments,
   };
 }
@@ -222,8 +271,8 @@ async function loadCellForChange(user, { sheet, row, column, identity }) {
   if (col < 0 || col >= layout.headers.length) throw httpError(400, `Column ${column} can't be edited.`);
 
   const cells = rowCells(layout, range, r);
-  const lead = parseCodes(cells[layout.columns.lead]);
-  if (!canEditRow(accessFor(user), lead)) {
+  const facts = rowFacts(sheet, layout, range, r, hierarchyByRow(layout, range), cells);
+  if (!rowAccess(accessFor(user), facts).edit) {
     throw httpError(403, 'You can only edit rows that your department leads.');
   }
 
@@ -328,12 +377,13 @@ async function mergeCellsForUser(user, {
 
   // Every row in the range: editable by this user, and still the row they loaded
   const access = accessFor(user);
+  const levels = hierarchyByRow(layout, range);
   const rowsInRange = [];
   for (let rr = r; rr <= endR; rr++) {
     const cells = rowCells(layout, range, rr);
     const rowNumber = layout.firstRow + rr;
-    if (!canEditRow(access, parseCodes(cells[layout.columns.lead]))) {
-      throw httpError(403, `Row ${rowNumber} is led by another department, so it can't be part of your merge.`);
+    if (!rowAccess(access, rowFacts(sheet, layout, range, rr, levels, cells)).edit) {
+      throw httpError(403, `You can't edit row ${rowNumber}, so it can't be part of your merge.`);
     }
     const expected = identities[rr - r];
     const now = rowIdentity(layout, cells);
@@ -411,4 +461,15 @@ async function mergeCellsForUser(user, {
   };
 }
 
-module.exports = { getGridForUser, updateCellForUser, formatCellForUser, mergeCellsForUser };
+module.exports = {
+  getGridForUser,
+  updateCellForUser,
+  formatCellForUser,
+  mergeCellsForUser,
+  // Sheet-reading helpers shared with rowid.service / access-rule.service
+  analyzeSheet,
+  rowCells,
+  rowIdAt,
+  hierarchyByRow,
+  letterToIndex,
+};

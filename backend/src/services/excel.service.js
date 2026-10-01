@@ -160,4 +160,28 @@ async function mergeRange(sheetName, address, { merge, clear = [], center = fals
   }
 }
 
-module.exports = { listWorksheets, getUsedRange, getWorkbookInfo, writeCell, writeCellFormat, mergeRange };
+// Writes a block of values (2D array) to a range such as "BT2:BT384"
+async function writeRange(sheetName, address, values) {
+  const client = await getAppGraphClient();
+  try {
+    await client.api(`${workbookPath()}/worksheets('${encodeURIComponent(sheetName)}')/range(address='${address}')`).patch({ values });
+    rangeCache.delete(sheetName);
+  } catch (err) {
+    if (err.statusCode === 403) {
+      throw Object.assign(new Error('The app is not allowed to edit the workbook. Its SharePoint site permission must be "write", not "read".'), { status: 503 });
+    }
+    throw explainGraphError(err);
+  }
+}
+
+// Hides (or shows) a whole column, e.g. "BT"
+async function setColumnHidden(sheetName, letter, hidden = true) {
+  const client = await getAppGraphClient();
+  try {
+    await client.api(`${workbookPath()}/worksheets('${encodeURIComponent(sheetName)}')/range(address='${letter}:${letter}')`).patch({ columnHidden: hidden });
+  } catch (err) {
+    throw explainGraphError(err);
+  }
+}
+
+module.exports = { listWorksheets, getUsedRange, getWorkbookInfo, writeCell, writeCellFormat, mergeRange, writeRange, setColumnHidden };

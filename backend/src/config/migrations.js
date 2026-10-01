@@ -26,7 +26,26 @@ async function addMissingColumns() {
       added.push(`${table}.${column}`);
     }
   }
+  await widenEnums();
   return added;
+}
+
+// ENUM columns that gained values after their table was created
+const WIDENED_ENUMS = [
+  { table: 'access_rules', column: 'permission', values: ['view', 'edit', 'hide'], defaultValue: 'view' },
+];
+
+async function widenEnums() {
+  const queryInterface = sequelize.getQueryInterface();
+  for (const { table, column, values, defaultValue } of WIDENED_ENUMS) {
+    const [tables] = await sequelize.query(`SHOW TABLES LIKE '${table}'`);
+    if (!tables.length) continue; // created by sync() with the full list
+    const existing = await queryInterface.describeTable(table);
+    const type = existing[column]?.type || '';
+    if (values.every((v) => type.includes(`'${v}'`))) continue;
+    await queryInterface.changeColumn(table, column, { type: DataTypes.ENUM(...values), allowNull: false, defaultValue });
+    logger.info(`Updated ${table}.${column} to allow: ${values.join(', ')}`);
+  }
 }
 
 module.exports = { addMissingColumns };

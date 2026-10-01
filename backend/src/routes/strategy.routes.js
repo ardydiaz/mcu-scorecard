@@ -76,6 +76,16 @@ router.post('/grid/merge',
   validate,
   strategy.mergeGridCells
 );
+// Personal "hide rows" in the user's own view
+router.put('/grid/hidden-rows',
+  body('sheet').isString().trim().isLength({ min: 1, max: 100 }),
+  body('hidden').isBoolean({ strict: true }),
+  body('all').optional().isBoolean({ strict: true }),
+  body('keys').optional().isArray({ max: 500 }),
+  body('keys.*').optional().isString().isLength({ max: 300 }),
+  validate,
+  strategy.setHiddenRows
+);
 router.get('/map', sheetQuery, validate, strategy.getMap);
 
 module.exports = router;

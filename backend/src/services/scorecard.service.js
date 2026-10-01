@@ -1,6 +1,6 @@
 const { listWorksheets, getUsedRange } = require('./excel.service');
 const { departmentOptions, canonicalCode } = require('../config/departments');
-const { accessFor } = require('./access.service');
+const { accessFor, rowVisible } = require('./access.service');
 
 // Header names used across the scorecard sheets (matched case-insensitively)
 const COLUMN_PATTERNS = {
@@ -17,6 +17,8 @@ const COLUMN_PATTERNS = {
   completionDate: /^(completion|due) date$/i,
   execomNotes: /^execom notes$/i,
   trafficLight: /^traffic light$/i,
+  // Hidden column with a permanent ID per row (added from Admin → Access Rules)
+  rowId: /^row id$/i,
 };
 const TARGET_HEADER = /^(\d{2}-\d{2}|\d{4}-\d{4})$/; // e.g. "26-27"
 const CACHE_TTL_MS = 60 * 1000;
@@ -76,11 +78,13 @@ function mapColumns(headerValues, headerText) {
   });
 
   // Everything to the right of the last known column is a status update, newest first
-  const lastKnown = Math.max(...Object.values(columns), ...targets.map((t) => t.index));
+  // (the Row ID column sits far to the right, so it doesn't count as a known column here)
+  const known = Object.entries(columns).filter(([key]) => key !== 'rowId').map(([, i]) => i);
+  const lastKnown = Math.max(...known, ...targets.map((t) => t.index));
   const statuses = [];
   for (let i = lastKnown + 1; i < headerValues.length; i++) {
     const raw = headerValues[i];
-    if (raw === '' || raw === null) continue;
+    if (raw === '' || raw === null || i === columns.rowId) continue;
     const label = typeof raw === 'number' && raw > 30000
       ? excelDateLabel(raw)
       : oneLine(headerText[i] || raw).replace(/\s+status$/i, '');
@@ -148,6 +152,7 @@ function parseScorecard(sheetName, range) {
     const qualityPolicy = cell(columns.qualityPolicy);
     const execomNotes = cell(columns.execomNotes);
     const trafficLight = cell(columns.trafficLight);
+    const rowId = oneLine(cell(columns.rowId));
 
     // Merged cells only hold a value on their first row, so each level carries down until it changes
     if (perspectiveName) {
@@ -171,6 +176,7 @@ function parseScorecard(sheetName, range) {
     } else if (kpiName) {
       kpi = {
         row: rowNumber,
+        rowId,
         cell: cellAddress(columns.kpi, rowNumber),
         name: kpiName,
         qualityPolicy,
@@ -189,11 +195,12 @@ function parseScorecard(sheetName, range) {
 
     if (projectName) {
       if (!kpi) {
-        kpi = { row: rowNumber, cell: cellAddress(columns.kpi, rowNumber), name: '', qualityPolicy: '', targets: [], tier: '', lead: [], support: [], notes: [], execomNotes: '', trafficLight: '', statuses: [], projects: [] };
+        kpi = { row: rowNumber, rowId: '', cell: cellAddress(columns.kpi, rowNumber), name: '', qualityPolicy: '', targets: [], tier: '', lead: [], support: [], notes: [], execomNotes: '', trafficLight: '', statuses: [], projects: [] };
         ensureKra().kpis.push(kpi);
       }
       kpi.projects.push({
         row: rowNumber,
+        rowId,
         cell: cellAddress(columns.project, rowNumber),
         name: projectName,
         target: kpiName ? '' : rowTargets.map((t) => t.value).join(' / '),
@@ -244,12 +251,19 @@ function collectDepartments(scorecard) {
   return departmentOptions(codes);
 }
 
-// Strict Lead filter, like Excel's "Lead contains <code>": only KPIs and projects whose own Lead
-// includes one of `codes` are kept. A KPI led by another department stays only as the parent of
-// matching projects, flagged `contextOnly` so it isn't shown or counted as the department's KPI.
-function filterByDepartments(scorecard, codes) {
-  const wanted = new Set(codes);
-  const matches = (item) => item.lead.some((c) => wanted.has(c));
+// Keeps the KPIs and projects the user may see (rowVisible: their Lead rows, access rules, or
+// the view-all Lead dropdown). A KPI the user can't see stays only as the parent of visible
+// projects, flagged `contextOnly` so it isn't shown or counted as theirs.
+function filterByAccess(scorecard, access) {
+  const facts = (item, p, o, k) => ({
+    sheet: scorecard.sheet,
+    lead: item.lead,
+    support: item.support,
+    perspective: p.name,
+    objective: o.name,
+    kra: k.name,
+    rowId: item.rowId,
+  });
 
   const perspectives = scorecard.perspectives.map((p) => ({
     ...p,
@@ -258,7 +272,11 @@ function filterByDepartments(scorecard, codes) {
       kras: o.kras.map((k) => ({
         ...k,
         kpis: k.kpis
-          .map((kpi) => ({ ...kpi, contextOnly: !matches(kpi), projects: kpi.projects.filter(matches) }))
+          .map((kpi) => ({
+            ...kpi,
+            contextOnly: !rowVisible(access, facts(kpi, p, o, k)),
+            projects: kpi.projects.filter((pr) => rowVisible(access, facts(pr, p, o, k))),
+          }))
           .filter((kpi) => !kpi.contextOnly || kpi.projects.length),
       })).filter((k) => k.kpis.length),
     })).filter((o) => o.kras.length),
@@ -308,14 +326,17 @@ async function getScorecardForUser(user, { sheet, department, refresh } = {}) {
   const sheetName = await resolveSheet(sheet);
   const full = await loadScorecard(sheetName, { refresh });
   const departments = collectDepartments(full);
-  const { canViewAll, viewing } = accessFor(user, department);
+  const access = accessFor(user, department);
+  const { canViewAll, viewing } = access;
 
-  const visible = viewing ? filterByDepartments(full, viewing) : full;
+  const visible = canViewAll && !viewing ? full : filterByAccess(full, access);
   return {
     ...visible,
     departments,
     canViewAll,
     viewingDepartments: viewing || [],
+    // Access rules that add rows beyond the user's own Lead rows
+    accessRuleCount: canViewAll ? 0 : access.rules.length,
     counts: countItems(visible),
   };
 }

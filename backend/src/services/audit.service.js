@@ -26,6 +26,10 @@ const ACTIONS = {
   'department.update': 'Edited department',
   'department.delete': 'Deleted department',
   'department.restore': 'Restored department',
+  'access_rule.create': 'Created access rule',
+  'access_rule.update': 'Edited access rule',
+  'access_rule.delete': 'Deleted access rule',
+  'sheet.row_ids_assign': 'Assigned Row IDs',
 };
 
 // The only actions the browser may report itself (everything else is recorded by the server)

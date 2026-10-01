@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const User = require('../models/User');
 const Department = require('../models/Department');
+const AccessRule = require('../models/AccessRule');
 require('../models/UserDepartment');
 
 const withDepartments = {
@@ -42,6 +43,25 @@ async function getUserById(id) {
 }
 
 /**
+ * The user as a plain object for access checks: departments plus `accessRules`, the access
+ * rules given to this user or to any of their departments.
+ */
+async function getUserForAccess(id) {
+  const user = (await getUserById(id)).toJSON();
+  const codes = (user.departments || []).map((d) => d.code).filter(Boolean);
+  const accessRules = await AccessRule.findAll({
+    where: {
+      [Op.or]: [
+        { subjectType: 'user', userId: user.id },
+        ...(codes.length ? [{ subjectType: 'department', departmentCode: { [Op.in]: codes } }] : []),
+      ],
+    },
+    raw: true,
+  });
+  return { ...user, accessRules };
+}
+
+/**
  * Changes a user's role and/or active status. Admins can't change their own role or deactivate
  * themselves, and the last active admin can't be demoted or deactivated (nobody could manage users).
  */
@@ -77,4 +97,4 @@ async function upsertByAzureOid(azureOid, fields, { transaction } = {}) {
   return User.create({ azureOid, ...fields }, { transaction });
 }
 
-module.exports = { listUsers, getUserById, updateUser, setUserDepartments, upsertByAzureOid };
+module.exports = { listUsers, getUserById, getUserForAccess, updateUser, setUserDepartments, upsertByAzureOid };

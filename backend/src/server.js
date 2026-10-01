@@ -13,6 +13,8 @@ require('./models/Department');
 require('./models/UserDepartment');
 require('./models/EditLog'); // older cell-edit history, copied into audit_logs once
 require('./models/AuditLog');
+require('./models/AccessRule');
+require('./models/HiddenRow');
 
 async function start() {
   try {
