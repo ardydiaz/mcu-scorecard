@@ -17,22 +17,5 @@ async function getUserProfile(oid) {
     .get();
 }
 
-// Fetches every user in the tenant, following @odata.nextLink pages
-async function listAllUsers() {
-  const client = await getAppGraphClient();
-  const users = [];
-  let response = await client
-    .api('/users')
-    .select('id,displayName,mail,userPrincipalName,jobTitle,department,accountEnabled')
-    .top(999)
-    .get();
 
-  users.push(...response.value);
-  while (response['@odata.nextLink']) {
-    response = await client.api(response['@odata.nextLink']).get();
-    users.push(...response.value);
-  }
-  return users;
-}
-
-module.exports = { getAppGraphClient, getUserProfile, listAllUsers };
+module.exports = { getAppGraphClient, getUserProfile };

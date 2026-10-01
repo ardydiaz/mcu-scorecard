@@ -106,9 +106,10 @@ async function syncQuietly() {
 }
 
 const isAdmin = (user) => user?.role === 'admin';
-const visibleTo = (user, w) => !w.missing && (isAdmin(user) || w.status === 'published');
+// Hidden files are out of the system for everyone; admins also see drafts (to check them before publishing)
+const visibleTo = (user, w) => !w.missing && w.status !== 'hidden' && (isAdmin(user) || w.status === 'published');
 
-// Files for the picker: admins see every file still in the folder, others published files only
+// Files for the picker: published files, plus drafts for admins (hidden and missing files never)
 async function listForUser(user) {
   await syncQuietly();
   const all = await Workbook.findAll({ order: [['isDefault', 'DESC'], ['lastModifiedAt', 'DESC']] });

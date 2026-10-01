@@ -16,5 +16,7 @@ const idParam = param('id').isInt({ min: 1 });
 router.get('/', workbooks.list);
 router.put('/:id/status', idParam, body('status').isIn(STATUSES), validate, workbooks.setStatus);
 router.put('/:id/default', idParam, validate, workbooks.setDefault);
+// Writes Row IDs into every scorecard sheet of the file (also done automatically on Publish)
+router.post('/:id/row-ids', idParam, validate, workbooks.assignRowIds);
 
 module.exports = router;

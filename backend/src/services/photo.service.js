@@ -1,15 +1,12 @@
-const { Op } = require('sequelize');
 const User = require('../models/User');
 const UserPhoto = require('../models/UserPhoto');
 const { getMsalClient, appScopes } = require('../config/microsoft');
 const logger = require('../utils/logger');
 
 // Microsoft 365 profile photos, read with the app's User.Read.All permission and kept in
-// user_photos. Refreshed at sign-in, during the admin user sync, and in the background when a
-// saved photo is more than a day old.
+// user_photos. Refreshed at sign-in, and in the background when a saved photo is more than a day old.
 const PHOTO_SIZE = '120x120'; // sharp on the 32–64 px avatars, ~4 KB each
 const RECHECK_MS = 24 * 60 * 60 * 1000;
-const SYNC_CONCURRENCY = 6;
 
 const refreshing = new Map(); // userId -> in-flight Promise
 
@@ -61,37 +58,6 @@ async function refreshAtLogin(user, timeoutMs = 4000) {
   }
 }
 
-/**
- * Refreshes the photos of all active users not checked in the last day (after a user sync).
- * Runs a few requests at a time; returns { checked, changed, failed }.
- */
-async function refreshAllPhotos() {
-  const recent = new Set((await UserPhoto.findAll({
-    attributes: ['userId'],
-    where: { checkedAt: { [Op.gt]: new Date(Date.now() - RECHECK_MS) } },
-    raw: true,
-  })).map((p) => p.userId));
-  const users = (await User.findAll({ where: { isActive: true }, attributes: ['id', 'email', 'azureOid', 'photoUpdatedAt'] }))
-    .filter((u) => !recent.has(u.id));
-
-  const result = { checked: 0, changed: 0, failed: 0 };
-  let next = 0;
-  async function worker() {
-    while (next < users.length) {
-      const user = users[next++];
-      try {
-        if (await refreshUserPhoto(user)) result.changed++;
-        result.checked++;
-      } catch {
-        result.failed++;
-      }
-    }
-  }
-  await Promise.all(Array.from({ length: SYNC_CONCURRENCY }, worker));
-  logger.info(`M365 photos: ${result.checked} checked, ${result.changed} changed, ${result.failed} failed`);
-  return result;
-}
-
 // The saved photo of a user, or null. A photo checked more than a day ago is refreshed in the
 // background (the saved one is served meanwhile).
 async function getPhoto(userId) {
@@ -103,4 +69,4 @@ async function getPhoto(userId) {
   return saved?.data ? { data: saved.data, contentType: saved.contentType } : null;
 }
 
-module.exports = { refreshUserPhoto, refreshAtLogin, refreshAllPhotos, getPhoto };
+module.exports = { refreshUserPhoto, refreshAtLogin, getPhoto };

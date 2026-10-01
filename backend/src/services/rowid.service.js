@@ -140,4 +140,27 @@ async function listMatchOptions(wb, sheet) {
   return Object.fromEntries(Object.entries(sets).map(([k, v]) => [k, [...v].sort((a, b) => a.localeCompare(b))]));
 }
 
-module.exports = { getRowIdStatus, assignRowIds, listRows, listMatchOptions };
+/**
+ * Row IDs for every scorecard sheet of a file (used when a file is published, so every file
+ * gets them the same way). Sheets that already have a unique ID on every row are not written to.
+ * Returns one entry per sheet: { sheet, assigned, createdColumn, column } or { sheet, error }.
+ */
+async function assignAllRowIds(wb) {
+  const results = [];
+  for (const { name } of await listScorecardSheets(wb)) {
+    try {
+      const status = await getRowIdStatus(wb, name);
+      if (status.hasColumn && !status.missing.length && !status.duplicates.length) {
+        results.push({ sheet: name, assigned: 0, createdColumn: false, column: status.column });
+      } else {
+        const { assigned, createdColumn, column } = await assignRowIds(wb, name);
+        results.push({ sheet: name, assigned, createdColumn, column });
+      }
+    } catch (err) {
+      results.push({ sheet: name, error: err.message });
+    }
+  }
+  return results;
+}
+
+module.exports = { getRowIdStatus, assignRowIds, assignAllRowIds, listRows, listMatchOptions };

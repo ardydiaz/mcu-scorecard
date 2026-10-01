@@ -1,4 +1,5 @@
 const workbookService = require('../services/workbook.service');
+const { assignAllRowIds } = require('../services/rowid.service');
 const { warmUp } = require('../services/format.service');
 const { audit } = require('../services/audit.service');
 
@@ -12,15 +13,41 @@ async function list(req, res) {
   res.json(workbooks);
 }
 
-// Publish / back to draft / hide
+// Writes Row IDs into every scorecard sheet of the file and records it like the Access Rules button
+async function assignAndAudit(req, wb) {
+  const sheets = await assignAllRowIds(wb);
+  for (const s of sheets.filter((x) => x.assigned || x.createdColumn)) {
+    await audit(req, 'sheet.row_ids_assign', { target: s.sheet, details: { workbook: wb.name, ...s } });
+  }
+  return sheets;
+}
+
+// Publish / back to draft / hide. Publishing also gives the file's scorecard sheets Row IDs, so
+// every published file supports rules for specific rows (the publish stands even if that fails).
 async function setStatus(req, res) {
   const { workbook, before } = await workbookService.setStatus(Number(req.params.id), req.body.status);
   await audit(req, 'workbook.status', {
     target: workbook.name,
     details: { from: STATUS_LABELS[before.status], to: STATUS_LABELS[workbook.status], ...(before.isDefault && !workbook.isDefault && { wasDefault: true }) },
   });
-  if (workbook.status === 'published') warmUp(workbook);
-  res.json(workbook);
+  let rowIds;
+  if (workbook.status === 'published') {
+    warmUp(workbook);
+    if (before.status !== 'published') {
+      try {
+        rowIds = await assignAndAudit(req, await workbookService.getWorkbook(workbook.id));
+      } catch (err) {
+        rowIds = [{ sheet: '(all sheets)', error: err.message }];
+      }
+    }
+  }
+  res.json({ ...workbook, ...(rowIds && { rowIds }) });
+}
+
+// "Assign Row IDs" for a whole file (e.g. one published before this was automatic)
+async function assignRowIds(req, res) {
+  const wb = await workbookService.getWorkbook(Number(req.params.id));
+  res.json({ rowIds: await assignAndAudit(req, wb) });
 }
 
 async function setDefault(req, res) {
@@ -29,4 +56,4 @@ async function setDefault(req, res) {
   res.json(workbook);
 }
 
-module.exports = { list, setStatus, setDefault };
+module.exports = { list, setStatus, assignRowIds, setDefault };

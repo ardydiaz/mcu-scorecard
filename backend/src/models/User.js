@@ -7,7 +7,7 @@ const User = sequelize.define('User', {
   email: { type: DataTypes.STRING, unique: true, allowNull: false, validate: { isEmail: true } },
   displayName: { type: DataTypes.STRING },
   jobTitle: { type: DataTypes.STRING },
-  // Department code from the M365 profile at last sign-in/sync (e.g. "ITD"); the raw
+  // Department code from the M365 profile at last sign-in (e.g. "ITD"); the raw
   // M365 value when it doesn't match config/departments.js
   department: { type: DataTypes.STRING(100) },
   role: { type: DataTypes.ENUM('admin', 'manager', 'user'), defaultValue: 'user' },
