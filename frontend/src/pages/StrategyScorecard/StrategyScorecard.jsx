@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useScorecard, useScorecardSheets } from '../../hooks/useStrategy';
 import { buildSheet } from '../../utils/sheetBuilder';
@@ -12,27 +12,6 @@ import { plural } from '../../utils/format';
 
 const REPORT_TAB = 'Scorecard Report';
 const MAX_ROW_LINES = 6;
-
-const matchesText = (query, ...values) => values.some((v) => String(v || '').toLowerCase().includes(query));
-
-// Client-side search over KPI names, project names and status text; keeps the hierarchy
-function searchScorecard(perspectives, rawQuery) {
-  const q = rawQuery.trim().toLowerCase();
-  if (!q) return perspectives;
-  return perspectives.map((p) => ({
-    ...p,
-    objectives: p.objectives.map((o) => ({
-      ...o,
-      kras: o.kras.map((k) => ({
-        ...k,
-        kpis: k.kpis.map((kpi) => {
-          if (matchesText(q, kpi.name, k.name, o.name, kpi.statuses[0]?.text)) return kpi;
-          return { ...kpi, projects: kpi.projects.filter((pr) => matchesText(q, pr.name, pr.statuses[0]?.text)) };
-        }).filter((kpi) => kpi.projects.length || matchesText(q, kpi.name, k.name, o.name, kpi.statuses[0]?.text)),
-      })).filter((k) => k.kpis.length),
-    })).filter((o) => o.kras.length),
-  })).filter((p) => p.objectives.length);
-}
 
 /**
  * One row per KPI and per project, with the targets of the last two school years and only the
@@ -117,14 +96,13 @@ export default function StrategyScorecard() {
   const [params, setParams] = useSearchParams();
   const sheet = params.get('sheet') || '';
   const department = params.get('department') || '';
-  const [query, setQuery] = useState('');
 
   const files = useSelectedWorkbook();
   const workbook = files.workbook;
   const sheets = useScorecardSheets({ workbook });
   const { data, loading, error, reload } = useScorecard({ workbook, sheet, department });
 
-  const perspectives = useMemo(() => (data ? searchScorecard(data.perspectives, query) : []), [data, query]);
+  const perspectives = useMemo(() => data?.perspectives || [], [data]);
   const report = useMemo(() => (data ? reportSheet(data, perspectives) : null), [data, perspectives]);
 
   function updateParams(changes) {
@@ -173,13 +151,6 @@ export default function StrategyScorecard() {
             </select>
           </label>
         )}
-        <input
-          type="search"
-          className="input toolbar__search"
-          placeholder="Search KPIs, projects, updates…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
         <button type="button" className="btn btn--ghost" onClick={() => reload(true)} disabled={loading}>
           Refresh from Excel
         </button>
@@ -196,7 +167,7 @@ export default function StrategyScorecard() {
       )}
 
       {!loading && data && !noDepartment && perspectives.length === 0 && (
-        <p className="muted">{query ? 'No KPIs or projects match your search.' : 'No scorecard items for this department.'}</p>
+        <p className="muted">No scorecard items for this department.</p>
       )}
 
       {!loading && report && perspectives.length > 0 && (

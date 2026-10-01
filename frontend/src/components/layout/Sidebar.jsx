@@ -34,7 +34,7 @@ export default function Sidebar({ open, onNavigate }) {
   return (
     <aside className={open ? 'sidebar sidebar--open' : 'sidebar'}>
       <div className="sidebar__brand">
-        <img src="/favicon.svg" alt="" width="28" height="28" />
+        <img src="/mcu-logo.png" alt="Manila Central University" width="40" height="40" className="sidebar__logo" />
         <span>MCU Scorecard</span>
       </div>
       <nav className="sidebar__nav">

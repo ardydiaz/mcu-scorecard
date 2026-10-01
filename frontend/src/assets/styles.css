@@ -97,12 +97,13 @@ h1, h2, h3 { margin: 0; line-height: 1.25; }
 }
 .btn:active:not(:disabled) { transform: translateY(1px); }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
-.btn--primary { background: var(--primary); color: var(--on-primary); box-shadow: 0 2px 8px rgba(46, 0, 70, 0.18); }
-.btn--primary:hover:not(:disabled) { background: var(--primary-hover); }
-.btn--accent { background: var(--accent); color: var(--on-accent); }
-.btn--accent:hover:not(:disabled) { background: var(--accent-hover); }
-.btn--ghost { background: var(--surface); color: var(--text); border-color: var(--border); }
-.btn--ghost:hover { background: var(--surface-2); border-color: var(--muted); }
+/* Every button is Gold Ignite with Purple Midnight text (light and dark mode); only danger buttons differ */
+.btn--primary,
+.btn--accent,
+.btn--ghost { background: var(--gold-ignite); color: var(--purple-midnight); border-color: transparent; box-shadow: 0 2px 8px rgba(46, 0, 70, 0.18); }
+.btn--primary:hover:not(:disabled),
+.btn--accent:hover:not(:disabled),
+.btn--ghost:hover:not(:disabled) { background: var(--gold-burst); }
 .btn--block { width: 100%; padding: 12px; }
 
 .input {
@@ -155,7 +156,10 @@ h1, h2, h3 { margin: 0; line-height: 1.25; }
 
 /* Loader */
 .loader { display: flex; align-items: center; gap: 10px; padding: 24px; color: var(--muted); }
+/* Whole window (signing in): same large spinner as .loader--center, in the middle of the screen */
 .loader--full { min-height: 100vh; justify-content: center; }
+.loader--full.loader,
+.loader--center.loader { flex-direction: column; }
 .loader__spinner {
   width: 18px;
   height: 18px;
@@ -174,6 +178,8 @@ h1, h2, h3 { margin: 0; line-height: 1.25; }
   font-weight: 500;
   text-align: center;
 }
+.loader--full { gap: 16px; font-weight: 500; text-align: center; }
+.loader--full .loader__spinner,
 .loader--center .loader__spinner {
   width: 48px;
   height: 48px;
@@ -252,6 +258,7 @@ h1, h2, h3 { margin: 0; line-height: 1.25; }
   font-size: 17px;
 }
 .sidebar__brand img { border-radius: 10px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); }
+.sidebar__logo { flex-shrink: 0; background: #212121; }
 .sidebar__nav { display: flex; flex-direction: column; gap: 2px; }
 .sidebar__link {
   position: relative;
@@ -895,7 +902,7 @@ kbd {
   transition: background 0.15s, color 0.15s;
 }
 .segmented__btn:hover { color: var(--text); }
-.segmented__btn--active { background: var(--primary); color: var(--on-primary); box-shadow: 0 2px 6px rgba(46, 0, 70, 0.2); }
+.segmented__btn--active { background: var(--gold-ignite); color: var(--purple-midnight); box-shadow: 0 2px 6px rgba(46, 0, 70, 0.2); }
 
 a.btn { text-decoration: none; }
 
@@ -916,8 +923,11 @@ a.btn { text-decoration: none; }
   opacity: 0.85;
 }
 .btn--sm { padding: 4px 10px; font-size: 13px; }
-.btn--danger { color: var(--error-text); }
-.btn--danger:hover { background: var(--error-bg); }
+/* Delete / Hide / Deactivate: red so they stand out from the gold buttons */
+.btn--danger,
+.btn--ghost.btn--danger { background: #c0263f; color: #fff; }
+.btn--danger:hover:not(:disabled),
+.btn--ghost.btn--danger:hover:not(:disabled) { background: #a01d33; }
 .btn--danger-solid { background: #c0263f; color: #fff; }
 .btn--danger-solid:hover:not(:disabled) { background: #a01d33; }
 
@@ -1063,8 +1073,8 @@ a.btn { text-decoration: none; }
 }
 .pagination__btn:hover:not(:disabled) { background: var(--surface-2); }
 .pagination__btn:disabled { opacity: 0.4; cursor: default; }
-.pagination__btn--on { background: var(--primary); border-color: var(--primary); color: var(--on-primary); font-weight: 600; }
-.pagination__btn--on:hover:not(:disabled) { background: var(--primary-hover); }
+.pagination__btn--on { background: var(--gold-ignite); border-color: var(--gold-ignite); color: var(--purple-midnight); font-weight: 600; }
+.pagination__btn--on:hover:not(:disabled) { background: var(--gold-burst); }
 .pagination__gap { padding: 0 4px; color: var(--muted); }
 .pagination__size { display: flex; align-items: center; gap: 8px; }
 .is-loading { opacity: 0.55; transition: opacity 0.15s; pointer-events: none; }

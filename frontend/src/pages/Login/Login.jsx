@@ -8,7 +8,9 @@ export default function Login() {
   const location = useLocation();
   const returnTo = location.state?.from?.pathname || '/dashboard';
 
-  if (loading) return <Loader fullScreen label="Signing you in…" />;
+  // Also while "Sign in with Microsoft" is working (before Microsoft's page opens, or while the
+  // existing Microsoft session is exchanged for an app session)
+  if (loading || signingIn) return <Loader fullScreen label="Signing you in…" />;
   if (user) return <Navigate to={returnTo} replace />;
 
   return (
