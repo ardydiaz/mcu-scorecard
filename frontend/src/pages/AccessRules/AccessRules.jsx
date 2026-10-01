@@ -3,6 +3,7 @@ import {
   assignRowIds, createAccessRule, deleteAccessRule, getAccessRules, getRowIdStatus, getRuleOptions, getRuleRows, updateAccessRule,
 } from '../../api/accessRuleApi';
 import { getUsers } from '../../api/userApi';
+import useAuth from '../../hooks/useAuth';
 import { getDepartments } from '../../api/departmentApi';
 import { getSheets } from '../../api/strategyApi';
 import { getErrorMessage } from '../../api/axios';
@@ -91,7 +92,8 @@ function CheckList({ items, selected, onChange, emptyText }) {
   );
 }
 
-function RuleForm({ initial, sheets, users, departments, saving, error, onSave, onCancel }) {
+// `onDelete` is given when editing an existing rule
+function RuleForm({ initial, sheets, users, departments, saving, error, onSave, onCancel, onDelete }) {
   const [rule, setRule] = useState(initial);
   const [options, setOptions] = useState(null);
   const [rows, setRows] = useState(null);
@@ -216,9 +218,27 @@ function RuleForm({ initial, sheets, users, departments, saving, error, onSave, 
 
       <ErrorMessage>{error}</ErrorMessage>
       <div className="dept-form__actions">
-        <button type="submit" className="btn btn--primary" disabled={saving || !rule.matchValues.length}>{saving ? 'Saving…' : 'Save rule'}</button>
+        <button
+          type="submit"
+          className="btn btn--primary"
+          disabled={saving || !rule.matchValues.length}
+          title={!rule.matchValues.length ? 'Select at least one value first' : undefined}
+        >
+          {saving ? 'Saving…' : 'Save rule'}
+        </button>
         <button type="button" className="btn btn--ghost" onClick={onCancel} disabled={saving}>Cancel</button>
+        {onDelete && (
+          <button type="button" className="btn btn--ghost btn--danger dept-form__delete" onClick={onDelete} disabled={saving}>
+            Delete rule
+          </button>
+        )}
       </div>
+      {!rule.matchValues.length && (
+        <p className="form-hint">
+          {rule.matchType === 'rowId' ? 'Select at least one row' : 'Choose at least one value'} to save this rule.
+          {onDelete && ' To remove this access completely, use Delete rule.'}
+        </p>
+      )}
     </form>
   );
 }
@@ -306,8 +326,12 @@ function RowIdPanel({ sheets }) {
   );
 }
 
-// Admin page: extra row access for users/departments, and the Row IDs those rules can use
+// Access rules for users/departments, and the Row IDs those rules can use. Admins manage every
+// rule; a Department Head ("manager") manages rules limited to rows their department leads.
 export default function AccessRules() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const myCodes = (user?.departments || []).map((d) => d.code).filter(Boolean);
   const [rules, setRules] = useState(null);
   const [sheets, setSheets] = useState([]);
   const [users, setUsers] = useState([]);
@@ -345,9 +369,15 @@ export default function AccessRules() {
   }
 
   async function remove(rule) {
-    if (!window.confirm(`Delete this rule for ${rule.subjectLabel}? They lose this access immediately.`)) return;
+    const effect = rule.permission === 'hide'
+      ? 'The hidden rows become visible to them again (if their department leads them).'
+      : rule.permission === 'view'
+        ? 'They lose the read-only limit / extra access this rule gave, immediately.'
+        : 'They lose the edit access this rule gave, immediately.';
+    if (!window.confirm(`Delete this rule for ${rule.subjectLabel}?\n\n${effect}`)) return;
     try {
       await deleteAccessRule(rule.id);
+      setEditing(null);
       setNotice('Rule deleted.');
       load();
     } catch (err) {
@@ -380,7 +410,13 @@ export default function AccessRules() {
         </p>
       </div>
 
-      <RowIdPanel sheets={sheets} />
+      {isAdmin ? <RowIdPanel sheets={sheets} /> : (
+        <div className="alert alert--info">
+          As <strong>Department Head</strong>, your rules only affect rows led by{' '}
+          <strong>{myCodes.join(', ') || 'your department'}</strong>, even if they match more (e.g. a whole Perspective).
+          You can give anyone View / View + edit on those rows, or Hide them.
+        </div>
+      )}
 
       <ErrorMessage>{error}</ErrorMessage>
       {notice && <div className="alert alert--success">{notice}</div>}
@@ -422,6 +458,7 @@ export default function AccessRules() {
                         initial={toForm(r)}
                         sheets={sheets} users={users} departments={departments}
                         saving={saving} error={formError} onSave={save} onCancel={() => setEditing(null)}
+                        onDelete={() => remove(r)}
                       />
                     </td>
                   </tr>
@@ -430,6 +467,11 @@ export default function AccessRules() {
                     <td>
                       {r.subjectType === 'department' ? <span className="code-chip">{r.subjectLabel}</span> : r.subjectLabel}
                       {r.subjectEmail && <div className="muted dept-table__desc">{r.subjectEmail}</div>}
+                      {r.scopeCodes?.length > 0 && (
+                        <div className="muted dept-table__desc" title="Made by a Department Head: only affects these departments' rows">
+                          Only {r.scopeCodes.join(', ')} rows · by {r.createdByEmail || 'a Department Head'}
+                        </div>
+                      )}
                     </td>
                     <td>{r.sheet || <span className="muted">All sheets</span>}</td>
                     <td>

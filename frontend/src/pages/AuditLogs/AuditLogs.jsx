@@ -12,6 +12,8 @@ const FIELD_LABELS = {
   code: 'Code', name: 'Name', description: 'Description', aliases: 'Aliases',
   otherNames: 'M365 names', viewAll: 'View all', leadCodes: 'Extra Lead codes',
 };
+// Role names as shown on the Users page ("manager" is the Department Head role)
+const ROLE_LABELS = { user: 'User', manager: 'Department Head', admin: 'Admin' };
 const FORMAT_LABELS = {
   bold: 'Bold', italic: 'Italic', underline: 'Underline', fontName: 'Font', fontSize: 'Size',
   fontColor: 'Font color', fillColor: 'Fill', hAlign: 'Align', vAlign: 'Vertical align', wrap: 'Wrap',
@@ -46,7 +48,7 @@ function Details({ entry }) {
           .map(([k, v]) => `${FORMAT_LABELS[k] || k} ${v === null ? 'none' : show(v)}`).join(', ')}</>
       );
     case 'user.role_change':
-      return <ValueChange from={d.from} to={d.to} />;
+      return <ValueChange from={ROLE_LABELS[d.from] || d.from} to={ROLE_LABELS[d.to] || d.to} />;
     case 'department.update':
       return (
         <ul className="audit-list">

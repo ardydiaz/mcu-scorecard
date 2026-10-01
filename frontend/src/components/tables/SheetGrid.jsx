@@ -4,6 +4,25 @@ import SheetRibbon from './SheetRibbon';
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const ZOOM_STEPS = [50, 60, 70, 80, 90, 100, 110, 125, 150];
 const ZOOM_KEY = 'mcu-scorecard-grid-zoom';
+const UNDO_LIMIT = 100; // most recent changes kept for Ctrl+Z
+
+// The formatting that puts back `before` (a cell style) for the options a change touched
+function inverseFormat(changes, before) {
+  const b = before || {};
+  const previous = {
+    bold: !!b.bold,
+    italic: !!b.italic,
+    underline: !!b.underline,
+    fontName: b.font || 'Calibri',
+    fontSize: b.size || 11,
+    fontColor: b.color || '#000000',
+    fillColor: b.bg || null,
+    hAlign: ['left', 'center', 'right'].includes(b.h) ? b.h : 'general',
+    vAlign: b.v === 'center' ? 'middle' : b.v || 'bottom',
+    wrap: !!b.wrap,
+  };
+  return Object.fromEntries(Object.keys(changes).map((k) => [k, previous[k]]));
+}
 const DEFAULT_WIDTH_CHARS = 8.43;
 const DEFAULT_HEIGHT_PT = 15;
 
@@ -165,6 +184,7 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
     setRows(grid.rows);
     setHiddenKeys(new Set(grid.hiddenKeys || []));
     setRowMenu(null);
+    setHistory({ undo: [], redo: [] });
     setStyles(grid.format?.styles || []);
     setSel({ r: 0, c: 0 });
     setAnchor(null);
@@ -353,6 +373,77 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
     setEditing({ initial: initialOverride ?? value, original: value });
   }
 
+  // ---- Saving, shared by editing and undo/redo ----
+
+  // Writes a value to Excel and shows it; returns the text Excel now displays
+  async function writeValue(row, col, value, previous) {
+    const result = await onSaveCell({ row, col, value, previous });
+    setRows((all) => all.map((x) => (x.row !== row.row ? x : {
+      ...x,
+      cells: x.cells.map((c, i) => (i === col ? result.text : c)),
+      identity: result.identity,
+    })));
+    return result.text;
+  }
+
+  // Writes formatting to Excel and shows it
+  async function writeFormat(row, col, changes) {
+    const result = await onFormatCell({ row, col, format: changes });
+    // Reuse an identical style if there is one, otherwise add the new style
+    const styleKey = JSON.stringify(result.style);
+    let index = styles.findIndex((st) => JSON.stringify(st) === styleKey);
+    if (index === -1) {
+      index = styles.length;
+      setStyles((all) => [...all, result.style]);
+    }
+    setRows((all) => all.map((x) => (x.row !== row.row ? x : {
+      ...x,
+      styles: (x.styles || grid.headers.map(() => null)).map((st, i) => (i === col ? index : st)),
+    })));
+  }
+
+  // ---- Undo / redo (Ctrl+Z / Ctrl+Y) of the edits and formatting made on this page ----
+  // Entries: { kind: 'value', rowNumber, col, before, after } or { kind: 'format', rowNumber, col, changes, before }
+  const [history, setHistory] = useState({ undo: [], redo: [] });
+  const remember = (entry) => setHistory((h) => ({ undo: [...h.undo, entry].slice(-UNDO_LIMIT), redo: [] }));
+
+  async function step(direction) {
+    if (saving || editing) return;
+    const entry = history[direction].at(-1);
+    if (!entry) { setStatus(direction === 'undo' ? 'Nothing to undo' : 'Nothing to redo'); return; }
+    const row = allRows.find((x) => x.row === entry.rowNumber);
+    const cellAddress = `${grid.headers[entry.col].letter}${entry.rowNumber}`;
+    if (!row) { setStatus(`${cellAddress} is no longer shown, so it can't be ${direction === 'undo' ? 'undone' : 'redone'}.`, true); return; }
+
+    const key = cellKey(row.row, entry.col);
+    setSaving(key);
+    setStatus(`${direction === 'undo' ? 'Undoing' : 'Redoing'} ${cellAddress}…`);
+    try {
+      if (entry.kind === 'value') {
+        const target = direction === 'undo' ? entry.before : entry.after;
+        // Date columns are saved from "2026-08"; "Aug-26" text would be read differently by Excel
+        const value = grid.dateColumns.includes(entry.col) ? (toMonthInput(target) || target) : target;
+        // The server checks the cell still shows what we show, so others' changes are never overwritten
+        await writeValue(row, entry.col, value, row.cells[entry.col]);
+      } else {
+        await writeFormat(row, entry.col, direction === 'undo' ? inverseFormat(entry.changes, entry.before) : entry.changes);
+      }
+      setHistory((h) => (direction === 'undo'
+        ? { undo: h.undo.slice(0, -1), redo: [...h.redo, entry] }
+        : { undo: [...h.undo, entry], redo: h.redo.slice(0, -1) }));
+      const r = rows.findIndex((x) => x.row === entry.rowNumber);
+      const c = cols.findIndex((h) => h.index === entry.col);
+      if (r >= 0 && c >= 0) { setAnchor(null); setSel(snap(r, c)); }
+      setStatus(`${direction === 'undo' ? 'Undid' : 'Redid'} ${entry.kind === 'value' ? 'edit' : 'formatting'} of ${cellAddress} in Excel`);
+    } catch (err) {
+      setStatus(`${cellAddress}: ${err.message}`, true);
+      if (err.status === 403) markRowReadOnly(row.row);
+    } finally {
+      setSaving(null);
+      scrollRef.current?.focus();
+    }
+  }
+
   async function commit(value, direction) {
     const edit = editing;
     setEditing(null);
@@ -373,12 +464,8 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
     setStatus(`Saving ${cellAddress}…`);
     setErrors((e) => ({ ...e, [key]: undefined }));
     try {
-      const result = await onSaveCell({ row, col, value, previous });
-      setRows((all) => all.map((x) => (x.row !== row.row ? x : {
-        ...x,
-        cells: x.cells.map((c, i) => (i === col ? result.text : c)),
-        identity: result.identity,
-      })));
+      const text = await writeValue(row, col, value, previous);
+      remember({ kind: 'value', rowNumber: row.row, col, before: previous, after: text });
       setStatus(`Saved ${cellAddress} to Excel`);
     } catch (err) {
       setErrors((e) => ({ ...e, [key]: err.message }));
@@ -409,19 +496,10 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
     const cellAddress = `${currentCol.letter}${row.row}`;
     setSaving(key);
     setStatus(`Formatting ${cellAddress}…`);
+    const before = style(row.styles?.[col]);
     try {
-      const result = await onFormatCell({ row, col, format: changes });
-      // Reuse an identical style if there is one, otherwise add the new style
-      const styleKey = JSON.stringify(result.style);
-      let index = styles.findIndex((st) => JSON.stringify(st) === styleKey);
-      if (index === -1) {
-        index = styles.length;
-        setStyles((all) => [...all, result.style]);
-      }
-      setRows((all) => all.map((x) => (x.row !== row.row ? x : {
-        ...x,
-        styles: (x.styles || grid.headers.map(() => null)).map((st, i) => (i === col ? index : st)),
-      })));
+      await writeFormat(row, col, changes);
+      remember({ kind: 'format', rowNumber: row.row, col, changes, before });
       setStatus(`Formatted ${cellAddress} in Excel`);
     } catch (err) {
       setStatus(`${cellAddress}: ${err.message}`, true);
@@ -524,6 +602,8 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
       }));
       setAnchor(null);
       setSel({ r: area.r1, c: startC });
+      // A merge changes several cells at once, so earlier steps can't be safely undone after it
+      setHistory({ undo: [], redo: [] });
       setStatus(`${merge ? 'Merged' : 'Unmerged'} ${span} in Excel`);
     } catch (err) {
       setStatus(`${span}: ${err.message}`, true);
@@ -536,6 +616,12 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
   function onKeyDown(e) {
     if (editing) return;
     if (e.key === 'Escape' && expanded) { e.preventDefault(); setExpanded(false); return; }
+    // Excel shortcuts: Ctrl+Z undo, Ctrl+Y / Ctrl+Shift+Z redo
+    if ((e.ctrlKey || e.metaKey) && (onSaveCell || onFormatCell)) {
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); step('undo'); return; }
+      if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); step('redo'); return; }
+    }
     // Excel shortcuts: Ctrl+9 hides the selected rows, Ctrl+Shift+9 unhides rows next to them
     if ((e.ctrlKey || e.metaKey) && e.code === 'Digit9' && onHideRows) {
       e.preventDefault();
@@ -627,6 +713,12 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
           disabled={!selectedFormattable || !!saving || !!editing}
           onApply={applyFormat}
           merge={onMergeCells ? { ...mergeState, onMerge: mergeCells } : null}
+          history={{
+            canUndo: history.undo.length > 0 && !saving && !editing,
+            canRedo: history.redo.length > 0 && !saving && !editing,
+            onUndo: () => step('undo'),
+            onRedo: () => step('redo'),
+          }}
         />
       )}
       <div className="xl-formula">

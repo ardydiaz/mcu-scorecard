@@ -29,8 +29,14 @@ export default function App() {
         <Route element={<AppLayout />}>
           <Route path="/users" element={<Users />} />
           <Route path="/departments" element={<Departments />} />
-          <Route path="/access-rules" element={<AccessRules />} />
           <Route path="/audit-logs" element={<AuditLogs />} />
+        </Route>
+      </Route>
+
+      {/* Department Heads ("manager") manage access rules for their own department's rows */}
+      <Route element={<ProtectedRoute roles={['admin', 'manager']} />}>
+        <Route element={<AppLayout />}>
+          <Route path="/access-rules" element={<AccessRules />} />
         </Route>
       </Route>
 

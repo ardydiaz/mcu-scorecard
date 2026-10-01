@@ -19,6 +19,8 @@ const Icon = {
   alignMiddle: <svg viewBox="0 0 16 16"><path d="M2 8h12M8 1v4M6 3l2 2 2-2M8 15v-4M6 13l2-2 2 2" /></svg>,
   alignBottom: <svg viewBox="0 0 16 16"><path d="M2 14h12M8 2v9M5 8l3 3 3-3" /></svg>,
   wrap: <svg viewBox="0 0 16 16"><path d="M2 3h12M2 7h10a2 2 0 010 4H8M9.5 9.5L8 11l1.5 1.5M2 11h3M2 14h12" /></svg>,
+  undo: <svg viewBox="0 0 16 16"><path d="M5 3L2 6l3 3M2 6h7.5a4 4 0 010 8H6" /></svg>,
+  redo: <svg viewBox="0 0 16 16"><path d="M11 3l3 3-3 3M14 6H6.5a4 4 0 000 8H10" /></svg>,
   merge: <svg viewBox="0 0 16 16"><path d="M1.5 3.5h13v9h-13zM4 8h8M6 6l-2 2 2 2M10 6l2 2-2 2" /></svg>,
   fill: <svg viewBox="0 0 16 16"><path d="M3 8l5-5 5 5-5 5z M11 10.5c0 1 1 2 1 2.5a1 1 0 01-2 0c0-.5 1-1.5 1-2.5" /></svg>,
 };
@@ -145,7 +147,7 @@ function Toggle({ on, title, disabled, onClick, children, className = '' }) {
  * Home-tab style formatting controls for the selected cell. `style` is the cell's current style
  * (from the workbook), `onApply(changes)` saves a change like { bold: true } to the Excel file.
  */
-export default function SheetRibbon({ style, disabled, onApply, merge }) {
+export default function SheetRibbon({ style, disabled, onApply, merge, history }) {
   const s = style || {};
   const font = s.font || 'Calibri';
   const size = s.size || 11;
@@ -156,6 +158,16 @@ export default function SheetRibbon({ style, disabled, onApply, merge }) {
 
   return (
     <div className="xl-ribbon" role="toolbar" aria-label="Formatting">
+      {history && (
+        <div className="rb-group">
+          <button type="button" className="rb-btn" title="Undo (Ctrl+Z)" disabled={!history.canUndo} onClick={history.onUndo}>
+            {Icon.undo}
+          </button>
+          <button type="button" className="rb-btn" title="Redo (Ctrl+Y)" disabled={!history.canRedo} onClick={history.onRedo}>
+            {Icon.redo}
+          </button>
+        </div>
+      )}
       <div className="rb-group">
         <select
           className="rb-select rb-select--font"

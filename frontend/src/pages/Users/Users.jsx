@@ -9,10 +9,13 @@ import Pagination from '../../components/common/Pagination';
 import { formatDate, initials } from '../../utils/format';
 
 const DEFAULT_PAGE_SIZE = 50;
+// "manager" is shown as Department Head: manages access rules for their own department's rows
 const ROLES = [
   { value: 'user', label: 'User' },
+  { value: 'manager', label: 'Department Head' },
   { value: 'admin', label: 'Admin' },
 ];
+const roleLabel = (role) => ROLES.find((r) => r.value === role)?.label || role;
 
 // Admin page: every user who has signed in (or was synced from Microsoft 365), with role and status
 export default function Users() {
@@ -95,8 +98,7 @@ export default function Users() {
           <span className="field__label">Role</span>
           <select className="input" value={filters.role} onChange={setFilter('role')}>
             <option value="">All</option>
-            <option value="admin">Admin</option>
-            <option value="user">User</option>
+            {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
         </label>
         <label className="field">
@@ -162,7 +164,7 @@ export default function Users() {
                           value={u.role}
                           disabled={isMe || busy}
                           title={isMe ? "You can't change your own role" : 'Role'}
-                          onChange={(e) => change(u, { role: e.target.value }, `${u.displayName || u.email} is now ${e.target.value === 'admin' ? 'an admin' : 'a user'}.`)}
+                          onChange={(e) => change(u, { role: e.target.value }, `${u.displayName || u.email} is now ${roleLabel(e.target.value)}.`)}
                         >
                           {roles.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
                         </select>

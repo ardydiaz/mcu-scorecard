@@ -8,12 +8,12 @@ const links = [
   { to: '/profile', label: 'Profile' },
 ];
 
-// Only shown to admins (the pages themselves are admin-only too)
+// Shown by role (the pages check the role too). "manager" = Department Head.
 const adminLinks = [
-  { to: '/users', label: 'Users' },
-  { to: '/departments', label: 'Departments' },
-  { to: '/access-rules', label: 'Access Rules' },
-  { to: '/audit-logs', label: 'Audit Logs' },
+  { to: '/users', label: 'Users', roles: ['admin'] },
+  { to: '/departments', label: 'Departments', roles: ['admin'] },
+  { to: '/access-rules', label: 'Access Rules', roles: ['admin', 'manager'] },
+  { to: '/audit-logs', label: 'Audit Logs', roles: ['admin'] },
 ];
 
 export default function Sidebar({ open, onNavigate }) {
@@ -28,6 +28,7 @@ export default function Sidebar({ open, onNavigate }) {
       {link.label}
     </NavLink>
   );
+  const manageLinks = adminLinks.filter((l) => l.roles.includes(user?.role));
 
   return (
     <aside className={open ? 'sidebar sidebar--open' : 'sidebar'}>
@@ -37,10 +38,10 @@ export default function Sidebar({ open, onNavigate }) {
       </div>
       <nav className="sidebar__nav">
         {links.map(renderLink)}
-        {user?.role === 'admin' && (
+        {manageLinks.length > 0 && (
           <>
-            <span className="sidebar__section">Admin</span>
-            {adminLinks.map(renderLink)}
+            <span className="sidebar__section">{user?.role === 'admin' ? 'Admin' : 'Department Head'}</span>
+            {manageLinks.map(renderLink)}
           </>
         )}
       </nav>

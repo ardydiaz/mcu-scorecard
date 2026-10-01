@@ -881,6 +881,8 @@ a.btn { text-decoration: none; }
 .chip__remove { border: 0; background: none; color: inherit; cursor: pointer; font-size: 11px; padding: 2px 5px; border-radius: 50%; }
 .chip__remove:hover { background: rgba(0, 0, 0, 0.1); }
 .checklist__toggle { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.dept-form__delete { margin-left: auto; }
+.form-hint { margin: 0; font-size: 13px; color: #9a5b00; }
 .rule-rows { margin: 2px 0 0; padding-left: 16px; font-size: 12px; }
 .rowid-status { margin: 4px 0 0; padding-left: 18px; font-size: 14px; display: flex; flex-direction: column; gap: 4px; }
 .rowid-status--warn { color: #9a5b00; }
