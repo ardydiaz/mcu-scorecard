@@ -33,7 +33,9 @@ async function me(req, res) {
 
 // The app token lives in the browser, so signing out is recorded here before it's discarded
 async function logout(req, res) {
-  await audit(req, 'auth.logout', { target: req.user.email });
+  // The browser signs users out by itself after 20 minutes of inactivity
+  const automatic = req.body?.reason === 'inactivity';
+  await audit(req, 'auth.logout', { target: req.user.email, ...(automatic && { details: { reason: 'Inactive for 20 minutes' } }) });
   res.status(204).end();
 }
 
