@@ -13,6 +13,11 @@ import {
   signOutOfMicrosoft,
 } from './authService';
 import { appConfig } from './msalConfig';
+import { toastSuccess } from '../utils/dialog';
+import useIdleLogout, { IDLE_LIMIT_MS, clearLastActivity, markSignedIn } from './useIdleLogout';
+
+// Set when the user signs out; the login page shows a "signed out" toast and removes it
+export const SIGNED_OUT_KEY = 'mcu-scorecard.signedOut';
 
 // redirectResult / redirectError come from MSAL's handleRedirectPromise in main.jsx
 export default function AuthProvider({ redirectResult, redirectError, children }) {
@@ -26,6 +31,7 @@ export default function AuthProvider({ redirectResult, redirectError, children }
   // Clears only this app's session (the Microsoft session stays)
   const clearSession = useCallback(() => {
     clearToken();
+    clearLastActivity();
     setUser(null);
   }, []);
 
@@ -51,7 +57,10 @@ export default function AuthProvider({ redirectResult, redirectError, children }
     try {
       const { token } = await loginWithMicrosoft(idToken);
       setToken(token);
-      await loadUser();
+      markSignedIn();
+      const me = await loadUser();
+      // The toast stays on screen while the app moves to the dashboard
+      if (me) toastSuccess(`Welcome, ${(me.displayName || me.email || '').split(' ')[0]}! You're signed in.`);
       navigate(returnTo || '/dashboard', { replace: true });
     } catch (err) {
       clearSession();
@@ -101,8 +110,19 @@ export default function AuthProvider({ redirectResult, redirectError, children }
     // Record the sign-out while the app token is still valid; never block signing out on it
     await logoutApi().catch(() => {});
     clearSession();
+    // The page goes to Microsoft's sign-out and back, so the login page shows the toast
+    try { sessionStorage.setItem(SIGNED_OUT_KEY, '1'); } catch { /* storage unavailable: no toast */ }
     signOutOfMicrosoft();
   }, [clearSession]);
+
+  // Automatic sign-out after 20 minutes of inactivity. Only this app's session ends: the Microsoft
+  // session stays, so signing in again is one click (and Outlook, Teams… aren't signed out).
+  const signOutIdle = useCallback(async () => {
+    await logoutApi({ reason: 'inactivity' }).catch(() => {});
+    clearSession();
+    setError(`You were signed out after ${IDLE_LIMIT_MS / 60000} minutes of inactivity. Sign in again to continue.`);
+  }, [clearSession]);
+  useIdleLogout(Boolean(user), signOutIdle);
 
   // Signing out in one tab (token removed from localStorage) signs out the other tabs too
   useEffect(() => {

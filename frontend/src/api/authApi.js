@@ -10,9 +10,10 @@ export async function loginWithMicrosoft(microsoftIdToken) {
   return data;
 }
 
-// Records the sign-out in the audit log (the token itself is discarded by the browser)
-export async function logout() {
-  await api.post('/auth/logout');
+// Records the sign-out in the audit log (the token itself is discarded by the browser).
+// `reason: 'inactivity'` marks an automatic sign-out.
+export async function logout({ reason } = {}) {
+  await api.post('/auth/logout', reason ? { reason } : {});
 }
 
 export async function getMe() {

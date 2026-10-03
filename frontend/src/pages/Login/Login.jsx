@@ -1,12 +1,25 @@
+import { useEffect } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import useAuth from '../../hooks/useAuth';
 import Loader from '../../components/common/Loader';
 import ErrorMessage from '../../components/common/ErrorMessage';
+import { SIGNED_OUT_KEY } from '../../auth/AuthProvider';
+import { toastSuccess } from '../../utils/dialog';
 
 export default function Login() {
   const { user, loading, signingIn, error, login } = useAuth();
   const location = useLocation();
   const returnTo = location.state?.from?.pathname || '/dashboard';
+
+  // Back from signing out (via Microsoft's sign-out page): confirm it once
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(SIGNED_OUT_KEY)) {
+        sessionStorage.removeItem(SIGNED_OUT_KEY);
+        toastSuccess("You've been signed out successfully.");
+      }
+    } catch { /* storage unavailable */ }
+  }, []);
 
   // Also while "Sign in with Microsoft" is working (before Microsoft's page opens, or while the
   // existing Microsoft session is exchanged for an app session)
