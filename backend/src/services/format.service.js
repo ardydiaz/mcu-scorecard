@@ -109,4 +109,10 @@ function warmUp(wb) {
   if (wb) refresh(wb).catch((err) => logger.warn(`Format warm-up failed: ${err.message}`));
 }
 
-module.exports = { getSheetFormat, getTabColor, updateCachedStyle, updateCachedMerge, warmUp };
+// After columns were inserted or deleted every cached position is off, so the formatting is read
+// again from the file; the next grid load waits for it (a few seconds)
+function forget(wb) {
+  cached.delete(wb.itemId);
+}
+
+module.exports = { getSheetFormat, getTabColor, updateCachedStyle, updateCachedMerge, warmUp, forget };

@@ -6,6 +6,8 @@ const userService = require('../services/user.service');
 const workbookService = require('../services/workbook.service');
 const { audit } = require('../services/audit.service');
 const hiddenRowService = require('../services/hiddenRow.service');
+const scoreboardService = require('../services/scoreboard.service');
+const columnService = require('../services/column.service');
 
 // The scorecard file this request works on (?workbook= or body.workbook; default file when absent)
 const workbookFor = (req) => workbookService.resolveWorkbook(req.query.workbook ?? req.body?.workbook, req.user);
@@ -42,20 +44,6 @@ const auditView = (req, view, wb, data, extra = {}) => audit(req, 'sheet.view', 
   },
 });
 
-// Department filtering happens here on the server, based on the user's DB record
-async function getScorecard(req, res) {
-  const wb = await workbookFor(req);
-  const user = await userService.getUserForAccess(req.user.id);
-  const { sheet, department, refresh } = req.query;
-  const data = await scorecardService.getScorecardForUser(wb, user, {
-    sheet,
-    department,
-    refresh: refresh === '1',
-  });
-  await auditView(req, 'Scorecard', wb, data, { kpis: data.counts.kpis, projects: data.counts.projects });
-  res.json({ ...data, workbookId: wb.id });
-}
-
 // Sheet as a spreadsheet grid, filtered on the Lead column by the user's department
 async function getGrid(req, res) {
   const wb = await workbookFor(req);
@@ -65,6 +53,9 @@ async function getGrid(req, res) {
   if (data.supported) {
     // Rows this user chose to hide in their own view (personal setting)
     data.hiddenKeys = await hiddenRowService.getHiddenKeys(user.id, wb.id, data.sheet);
+    // Everyone may insert columns; deleting one is for admins (see column.service)
+    data.canInsertColumns = true;
+    data.canDeleteColumns = user.role === 'admin';
     await auditView(req, 'Excel grid', wb, data, { rows: data.rows.length });
   }
   res.json(data);
@@ -89,7 +80,8 @@ async function withDeniedAudit(req, wb, action, fn) {
       const { sheet, row } = req.body;
       const column = req.body.column || req.body.startColumn;
       await audit(req, 'sheet.edit_denied', {
-        target: `${sheet}!${column}${row}`,
+        // A cell (C129), or a whole column (C:C) for column changes
+        target: row ? `${sheet}!${column}${row}` : `${sheet}!${column || ''}:${column || ''}`,
         details: { workbook: wb.name, attempted: action, reason: err.message },
       });
     }
@@ -122,6 +114,21 @@ async function formatGridCell(req, res) {
 }
 
 // Merges (or unmerges) a range of the Excel file; rules in grid.service
+// Inserts a column, adds today's update column, or (admins) deletes a column; rules in column.service
+async function changeGridColumns(req, res) {
+  const wb = await workbookFor(req);
+  const user = await userService.getUserForAccess(req.user.id);
+  const { sheet, action, column, side, header, expectedHeader, confirm } = req.body;
+  const run = {
+    insert: () => columnService.insertColumnForUser(wb, user, { sheet, column, side, header, expectedHeader }),
+    update: () => columnService.addUpdateColumnForUser(wb, user, { sheet }),
+    delete: () => columnService.deleteColumnForUser(wb, user, { sheet, column, expectedHeader, confirm }),
+  }[action];
+  const { change, ...result } = await withDeniedAudit(req, wb, `column ${action}`, run);
+  await audit(req, action === 'delete' ? 'sheet.column_delete' : 'sheet.column_insert', change);
+  res.json(result);
+}
+
 async function mergeGridCells(req, res) {
   const wb = await workbookFor(req);
   const user = await userService.getUserForAccess(req.user.id);
@@ -133,6 +140,16 @@ async function mergeGridCells(req, res) {
   res.json(result);
 }
 
+// Dashboard scoreboard: the projects the user may see, once per dated update column
+async function getScoreboard(req, res) {
+  const wb = await workbookFor(req);
+  const user = await userService.getUserForAccess(req.user.id);
+  const { sheet, department, refresh } = req.query;
+  const data = await scoreboardService.getScoreboardForUser(wb, user, { sheet, department, refresh: refresh === '1' });
+  await auditView(req, 'Dashboard scoreboard', wb, data, { projects: data.projects.length });
+  res.json({ ...data, workbookId: wb.id, workbookName: wb.name });
+}
+
 async function getMap(req, res) {
   const wb = await workbookFor(req);
   const data = await scorecardService.getStrategyMap(wb, { sheet: req.query.sheet, refresh: req.query.refresh === '1' });
@@ -141,5 +158,5 @@ async function getMap(req, res) {
 }
 
 module.exports = {
-  listWorkbooks, listSheets, getWorkbook, getScorecard, getGrid, setHiddenRows, updateGridCell, formatGridCell, mergeGridCells, getMap,
+  listWorkbooks, listSheets, getWorkbook, getScoreboard, getGrid, setHiddenRows, updateGridCell, formatGridCell, mergeGridCells, changeGridColumns, getMap,
 };

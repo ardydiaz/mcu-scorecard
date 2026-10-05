@@ -179,6 +179,38 @@ async function writeRange(wb, sheetName, address, values) {
   }
 }
 
+/**
+ * Inserts an empty column at `letter` (e.g. "R"), shifting that column and everything right of it
+ * one place right, like Excel's "Insert sheet columns" (formulas and merged areas follow), then
+ * writes `header` into `headerAddress` (e.g. "R1"). `header` may be a date serial with `numberFormat`.
+ */
+async function insertColumn(wb, sheetName, letter, headerAddress, header, { numberFormat } = {}) {
+  const client = await getAppGraphClient();
+  const sheet = sheetPath(wb, sheetName);
+  try {
+    await client.api(`${sheet}/range(address='${letter}:${letter}')/insert`).post({ shift: 'Right' });
+    const body = { values: [[header]] };
+    if (numberFormat) body.numberFormat = [[numberFormat]];
+    await client.api(`${sheet}/range(address='${headerAddress}')`).patch(body);
+    forgetRange(wb, sheetName);
+  } catch (err) {
+    forgetRange(wb, sheetName);
+    throw explainWriteError(err);
+  }
+}
+
+// Deletes a whole column, shifting the columns right of it one place left (Excel's "Delete sheet columns")
+async function deleteColumn(wb, sheetName, letter) {
+  const client = await getAppGraphClient();
+  try {
+    await client.api(`${sheetPath(wb, sheetName)}/range(address='${letter}:${letter}')/delete`).post({ shift: 'Left' });
+    forgetRange(wb, sheetName);
+  } catch (err) {
+    forgetRange(wb, sheetName);
+    throw explainWriteError(err);
+  }
+}
+
 // Hides (or shows) a whole column, e.g. "BT"
 async function setColumnHidden(wb, sheetName, letter, hidden = true) {
   const client = await getAppGraphClient();
@@ -198,6 +230,8 @@ module.exports = {
   writeCellFormat,
   mergeRange,
   writeRange,
+  insertColumn,
+  deleteColumn,
   setColumnHidden,
   explainGraphError,
 };

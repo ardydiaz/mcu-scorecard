@@ -18,11 +18,11 @@ const sheetQuery = query('sheet').optional().isString().trim().isLength({ min: 1
 router.get('/workbooks', strategy.listWorkbooks);
 router.get('/sheets', validate, strategy.listSheets);
 router.get('/workbook', validate, strategy.getWorkbook);
-router.get('/scorecard',
+router.get('/scoreboard',
   sheetQuery,
   query('department').optional().isString().trim().isLength({ min: 1, max: 20 }),
   validate,
-  strategy.getScorecard
+  strategy.getScoreboard
 );
 router.get('/grid',
   query('sheet').isString().trim().isLength({ min: 1, max: 100 }),
@@ -81,6 +81,18 @@ router.post('/grid/merge',
   body(['merge', 'center', 'confirm']).optional().isBoolean({ strict: true }),
   validate,
   strategy.mergeGridCells
+);
+// Insert a column / add today's update column (everyone), delete a column (admins; checked in column.service)
+router.post('/grid/columns',
+  body('sheet').isString().trim().isLength({ min: 1, max: 100 }),
+  body('action').isIn(['insert', 'update', 'delete']),
+  body('column').if(body('action').isIn(['insert', 'delete'])).isString().matches(/^[A-Z]{1,3}$/),
+  body('side').optional().isIn(['left', 'right']),
+  body('header').if(body('action').equals('insert')).isString().isLength({ min: 1, max: 100 }),
+  body('expectedHeader').optional().isString().isLength({ max: 500 }),
+  body('confirm').optional().isBoolean({ strict: true }),
+  validate,
+  strategy.changeGridColumns
 );
 // Personal "hide rows" in the user's own view
 router.put('/grid/hidden-rows',

@@ -53,6 +53,8 @@ function analyzeSheet(range) {
     headers.push({
       letter: columnLetter(firstCol + i),
       label: statusLabels.get(i) || oneLine(text[headerRow][i] || headerCells[i]),
+      // The header cell as Excel shows it (used to check the column didn't move before changing it)
+      header: oneLine(text[headerRow][i] || headerCells[i]),
       group: statusLabels.has(i) ? 'status' : i >= projectStart ? 'project' : 'kpi',
     });
   }

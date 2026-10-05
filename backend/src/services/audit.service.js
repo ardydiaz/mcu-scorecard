@@ -16,6 +16,8 @@ const ACTIONS = {
   'sheet.cell_format': 'Formatted cell',
   'sheet.merge': 'Merged cells',
   'sheet.unmerge': 'Unmerged cells',
+  'sheet.column_insert': 'Inserted column',
+  'sheet.column_delete': 'Deleted column',
   'sheet.edit_denied': 'Edit refused',
   'audit.export': 'Exported audit log',
   'user.role_change': 'Changed role',

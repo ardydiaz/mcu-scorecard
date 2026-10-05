@@ -19,7 +19,12 @@ const COLUMN_PATTERNS = {
   trafficLight: /^traffic light$/i,
   // Hidden column with a permanent ID per row (added from Admin → Access Rules)
   rowId: /^row id$/i,
+  // Optional columns for the dashboard scoreboard: the project's stage, and what it is waiting on
+  stage: /^stage$/i,
+  waitingOn: /^waiting (on|for)$/i,
 };
+// Columns that may sit anywhere (even right of the dated updates), so they don't mark where updates start
+const FREE_COLUMNS = ['rowId', 'stage', 'waitingOn'];
 const TARGET_HEADER = /^(\d{2}-\d{2}|\d{4}-\d{4})$/; // e.g. "26-27"
 const CACHE_TTL_MS = 60 * 1000;
 const HEADER_SEARCH_ROWS = 30;
@@ -79,12 +84,13 @@ function mapColumns(headerValues, headerText) {
 
   // Everything to the right of the last known column is a status update, newest first
   // (the Row ID column sits far to the right, so it doesn't count as a known column here)
-  const known = Object.entries(columns).filter(([key]) => key !== 'rowId').map(([, i]) => i);
+  const known = Object.entries(columns).filter(([key]) => !FREE_COLUMNS.includes(key)).map(([, i]) => i);
   const lastKnown = Math.max(...known, ...targets.map((t) => t.index));
+  const freeIndexes = FREE_COLUMNS.map((key) => columns[key]).filter((i) => i !== undefined);
   const statuses = [];
   for (let i = lastKnown + 1; i < headerValues.length; i++) {
     const raw = headerValues[i];
-    if (raw === '' || raw === null || i === columns.rowId) continue;
+    if (raw === '' || raw === null || freeIndexes.includes(i)) continue;
     const label = typeof raw === 'number' && raw > 30000
       ? excelDateLabel(raw)
       : oneLine(headerText[i] || raw).replace(/\s+status$/i, '');
@@ -211,6 +217,10 @@ function parseScorecard(sheetName, range) {
         execomNotes,
         trafficLight,
         statuses: rowStatuses,
+        // Dashboard scoreboard: the row's own tier (projects of one KPI can differ), and the optional columns
+        tier: cell(columns.tier),
+        stage: oneLine(cell(columns.stage)),
+        waitingOn: oneLine(cell(columns.waitingOn)),
       });
     }
   }
