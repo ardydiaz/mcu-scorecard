@@ -4,6 +4,7 @@ import { getErrorMessage } from '../../api/axios';
 import Card from '../../components/common/Card';
 import Loader from '../../components/common/Loader';
 import ErrorMessage from '../../components/common/ErrorMessage';
+import ActionMenu from '../../components/common/ActionMenu';
 import { confirmDialog, toastSuccess } from '../../utils/dialog';
 
 const STATUS = {
@@ -114,8 +115,8 @@ export default function Workbooks() {
         <h1 className="page__title">Workbooks</h1>
         <p className="muted">
           Excel files in SharePoint (Strategy → Documents → Scorecard). A file uploaded there shows up here as a
-          Draft within about half a minute (this list updates by itself); publish it to make it available in Strategy Map and Strategy Scorecard. The default
-          file opens first.
+          Draft within about half a minute (this list updates by itself); publish it to make it available on the Dashboard and in Strategy Map.
+          The default file opens first. Use the ⋮ menu on a file for its actions.
         </p>
       </div>
 
@@ -160,32 +161,20 @@ export default function Workbooks() {
                       </td>
                       <td>{formatDate(w.lastModifiedAt)}</td>
                       <td className="dept-table__actions">
-                        {w.status !== 'published' && (
-                          <button type="button" className="btn btn--primary btn--sm" disabled={busy !== null} onClick={() => changeStatus(w, 'published')}>
-                            Publish
-                          </button>
-                        )}
-                        {w.status === 'published' && !w.isDefault && (
-                          <button type="button" className="btn btn--ghost btn--sm" disabled={busy !== null} onClick={() => makeDefault(w)}>
-                            Make default
-                          </button>
-                        )}
-                        {w.status === 'published' && (
-                          <button type="button" className="btn btn--ghost btn--sm" disabled={busy !== null} onClick={() => changeStatus(w, 'draft')}>
-                            Unpublish
-                          </button>
-                        )}
-                        {w.status !== 'hidden' && (
-                          <button type="button" className="btn btn--ghost btn--sm" disabled={busy !== null} onClick={() => assignIds(w)}
-                            title="Add missing Row IDs to every scorecard sheet of this file">
-                            {busy === w.id ? 'Working…' : 'Assign Row IDs'}
-                          </button>
-                        )}
-                        {w.status !== 'hidden' && (
-                          <button type="button" className="btn btn--ghost btn--sm btn--danger" disabled={busy !== null} onClick={() => changeStatus(w, 'hidden')}>
-                            Hide
-                          </button>
-                        )}
+                        <ActionMenu
+                          label={`Actions for ${w.name}`}
+                          disabled={busy !== null}
+                          busy={busy === w.id}
+                          items={[
+                            w.status !== 'published' && { label: 'Publish', icon: 'publish', onClick: () => changeStatus(w, 'published') },
+                            w.status === 'published' && !w.isDefault && { label: 'Make default', icon: 'star', onClick: () => makeDefault(w) },
+                            w.status === 'published' && { label: 'Unpublish', icon: 'unpublish', onClick: () => changeStatus(w, 'draft') },
+                            w.status !== 'hidden' && { label: 'Assign Row IDs', icon: 'ids', onClick: () => assignIds(w) },
+                            w.webUrl && { label: 'Open in Excel', icon: 'open', href: w.webUrl },
+                            w.status !== 'hidden' && { divider: true },
+                            w.status !== 'hidden' && { label: 'Hide file', icon: 'hide', danger: true, onClick: () => changeStatus(w, 'hidden') },
+                          ]}
+                        />
                       </td>
                     </tr>
                   ))}
