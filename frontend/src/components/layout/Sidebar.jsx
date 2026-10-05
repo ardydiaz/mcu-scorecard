@@ -3,8 +3,7 @@ import useAuth from '../../hooks/useAuth';
 
 const links = [
   { to: '/dashboard', label: 'Dashboard' },
-  { to: '/strategy-map', label: 'Strategy Map' },
-  { to: '/scorecard', label: 'Strategy Scorecard' },
+  { to: '/strategy-map', label: 'Strategy Scoreboard' },
   { to: '/profile', label: 'Profile' },
 ];
 
@@ -35,7 +34,7 @@ export default function Sidebar({ open, onNavigate }) {
     <aside className={open ? 'sidebar sidebar--open' : 'sidebar'}>
       <div className="sidebar__brand">
         <img src="/mcu-logo.png" alt="Manila Central University" width="40" height="40" className="sidebar__logo" />
-        <span>MCU Scorecard</span>
+        <span>MCU Scoreboard</span>
       </div>
       <nav className="sidebar__nav">
         {links.map(renderLink)}

@@ -68,6 +68,7 @@ export default function useIdleLogout(active, onTimeout) {
       let timer;
       const result = await Swal.fire({
         target: document.fullscreenElement || 'body',
+        position: 'center', // the container is shared with toasts, which place it at the top
         title: 'Are you still there?',
         html: '<p class="mcu-swal__text">For your security you will be signed out in <strong id="idle-countdown">60</strong> seconds because of inactivity.</p>',
         icon: 'warning',

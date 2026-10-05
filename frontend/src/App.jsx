@@ -4,7 +4,6 @@ import AppLayout from './components/layout/AppLayout';
 import Login from './pages/Login/Login';
 import Dashboard from './pages/Dashboard/Dashboard';
 import StrategyMap from './pages/StrategyMap/StrategyMap';
-import StrategyScorecard from './pages/StrategyScorecard/StrategyScorecard';
 import Profile from './pages/Profile/Profile';
 import Departments from './pages/Departments/Departments';
 import Users from './pages/Users/Users';
@@ -21,7 +20,6 @@ export default function App() {
         <Route element={<AppLayout />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/strategy-map" element={<StrategyMap />} />
-          <Route path="/scorecard" element={<StrategyScorecard />} />
           <Route path="/profile" element={<Profile />} />
         </Route>
       </Route>

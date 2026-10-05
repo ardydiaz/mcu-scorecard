@@ -33,6 +33,47 @@ const escapeHtml =(s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&am
 const ICONS = { danger: 'warning', warning: 'warning', primary: 'question', info: 'info' };
 
 /**
+ * Asks for a short text (e.g. a new column's header). Resolves the trimmed text, or null on Cancel.
+ * `validate(value)` returns an error message to show, or nothing when the value is fine.
+ */
+export async function promptDialog({ title, text = '', label = '', placeholder = '', confirmText = 'OK', maxLength = 100, validate }) {
+  const result = await Swal.fire({
+    target: document.fullscreenElement || 'body',
+    // Always centered: the container is shared with toasts, which place it at the top
+    position: 'center',
+    title,
+    html: text ? `<p class="mcu-swal__text">${escapeHtml(text)}</p>` : undefined,
+    input: 'text',
+    inputLabel: label,
+    inputPlaceholder: placeholder,
+    inputAttributes: { maxlength: String(maxLength), autocomplete: 'off' },
+    showCancelButton: true,
+    confirmButtonText: confirmText,
+    cancelButtonText: 'Cancel',
+    reverseButtons: true,
+    buttonsStyling: false,
+    customClass: {
+      container: 'mcu-swal-backdrop',
+      popup: 'mcu-swal',
+      title: 'mcu-swal__title',
+      htmlContainer: 'mcu-swal__body',
+      input: 'input mcu-swal__input',
+      inputLabel: 'mcu-swal__label',
+      validationMessage: 'mcu-swal__error',
+      actions: 'mcu-swal__actions',
+      confirmButton: 'btn btn--primary',
+      cancelButton: 'btn btn--ghost',
+    },
+    inputValidator: (value) => {
+      const v = String(value || '').trim();
+      if (!v) return 'Type a name first.';
+      return validate ? validate(v) || undefined : undefined;
+    },
+  });
+  return result.isConfirmed ? String(result.value).trim() : null;
+}
+
+/**
  * Asks the user to confirm; resolves true when they click the confirm button.
  *   title        question, e.g. 'Hide “Report.xlsx”?'
  *   text         explanation (plain text; line breaks are kept)
@@ -47,6 +88,8 @@ export async function confirmDialog({ title, text = '', items = [], confirmText 
   const result = await Swal.fire({
     // A sheet in full screen only shows its own element, so the dialog goes inside it
     target: document.fullscreenElement || 'body',
+    // Always centered: the container is shared with toasts, which place it at the top
+    position: 'center',
     title,
     html: `<p class="mcu-swal__text">${escapeHtml(text)}</p>${list}`,
     icon: ICONS[tone] || 'question',

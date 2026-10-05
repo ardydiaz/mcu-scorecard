@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { confirmDialog } from '../../utils/dialog';
+import { confirmDialog, promptDialog } from '../../utils/dialog';
 import SheetRibbon from './SheetRibbon';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -137,7 +137,7 @@ function CellEditor({ initial, isDate, minHeight, onCommit, onCancel, onDraftCha
  * a status bar. `onSaveCell` writes an edit to the Excel file and returns { text, identity }.
  * Carried-down values (grey italics) and formula cells are read-only.
  */
-export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells, onHideRows, sheets = [], onSheetChange }) {
+export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells, onHideRows, onColumns, sheets = [], onSheetChange }) {
   const format = grid.format;
   const [zoomPct, setZoomPct] = useState(() => readZoom(format?.zoom || 100));
   const zoom = zoomPct / 100;
@@ -146,6 +146,8 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
   const [hiddenKeys, setHiddenKeys] = useState(() => new Set(grid.hiddenKeys || []));
   const rows = useMemo(() => allRows.filter((x) => !hiddenKeys.has(x.key)), [allRows, hiddenKeys]);
   const [rowMenu, setRowMenu] = useState(null); // { x, y, keys } for the row-number right-click menu
+  const [colMenu, setColMenu] = useState(null); // { x, y, c } for the column-letter right-click menu
+  const [columnBusy, setColumnBusy] = useState(''); // message on the loader shown while a column change runs
   // Local copy of the workbook's style table; formatting done here adds styles to it
   const [styles, setStyles] = useState(format?.styles || []);
   const [sel, setSel] = useState({ r: 0, c: 0 });
@@ -258,20 +260,26 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
 
   // Like Excel: a row number selects the whole row, a column letter the whole column; with Shift
   // the selection grows from where it started. (The grid shows only the rows in the Lead filter.)
+  // The active cell is the first cell of the clicked row / column (its left / top end), and the
+  // sheet doesn't scroll, as in Excel (`keepScroll` skips the keep-selection-visible scroll once)
+  const keepScroll = useRef(false);
+
   function selectRows(r, extend) {
     if (editing) return;
     const startRow = extend && anchor ? anchor.r : extend ? sel.r : r;
-    setAnchor({ r: startRow, c: 0 });
-    setSel({ r, c: cols.length - 1 });
-    scrollRef.current?.focus();
+    keepScroll.current = true;
+    setAnchor({ r: startRow, c: cols.length - 1 });
+    setSel({ r, c: 0 });
+    scrollRef.current?.focus({ preventScroll: true });
   }
 
   function selectColumns(c, extend) {
     if (editing) return;
     const startCol = extend && anchor ? anchor.c : extend ? sel.c : c;
-    setAnchor({ r: 0, c: startCol });
-    setSel({ r: rows.length - 1, c });
-    scrollRef.current?.focus();
+    keepScroll.current = true;
+    setAnchor({ r: rows.length - 1, c: startCol });
+    setSel({ r: 0, c });
+    scrollRef.current?.focus({ preventScroll: true });
   }
 
   // ---- Hide rows (personal view setting, saved per user; the Excel file isn't changed) ----
@@ -325,11 +333,90 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
   }
 
   useEffect(() => {
-    if (!rowMenu) return undefined;
-    const close = (e) => { if (!e.target.closest?.('.xl-context')) setRowMenu(null); };
+    if (!rowMenu && !colMenu) return undefined;
+    const close = (e) => { if (!e.target.closest?.('.xl-context')) { setRowMenu(null); setColMenu(null); } };
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
-  }, [rowMenu]);
+  }, [rowMenu, colMenu]);
+
+  // ---- Columns (changes the Excel file for everyone: insert for all users, delete for admins) ----
+
+  function openColMenu(e, c) {
+    if (!onColumns || editing) return;
+    e.preventDefault();
+    selectColumns(c, false);
+    setRowMenu(null);
+    const box = containerRef.current.getBoundingClientRect();
+    setColMenu({ x: e.clientX - box.left, y: e.clientY - box.top, c });
+  }
+
+  // Runs a column change; the page reloads the grid afterwards. A delete of a column with values asks
+  // again with the number of cells that would be lost (code CONFIRM_DELETE from the server).
+  async function runColumns(request, busyText) {
+    setSaving('columns');
+    setStatus(busyText);
+    setColumnBusy(busyText);
+    try {
+      try {
+        await onColumns(request);
+      } catch (err) {
+        if (err.code !== 'CONFIRM_DELETE') throw err;
+        setColumnBusy('');
+        const ok = await confirmDialog({
+          title: `Delete “${err.header}” and its data?`,
+          text: `${err.filled} cell(s) in this column have values, in every department's rows. They are deleted from the Excel file, and this can't be undone here (SharePoint's version history keeps older copies).`,
+          confirmText: 'Delete column and data',
+          tone: 'danger',
+        });
+        if (!ok) { setStatus('Delete cancelled'); return; }
+        setColumnBusy(busyText);
+        await onColumns({ ...request, confirm: true });
+      }
+    } catch (err) {
+      setStatus(err.message, true);
+    } finally {
+      setSaving(null);
+      setColumnBusy('');
+    }
+  }
+
+  async function insertColumn(side) {
+    const h = cols[colMenu.c];
+    setColMenu(null);
+    const taken = grid.headers.map((x) => (x.header || x.label || '').toLowerCase());
+    const header = await promptDialog({
+      title: `Insert a column ${side} of ${h.letter}`,
+      text: 'The column is added to the Excel file for every department. Everyone can then fill in its cells on the rows they may edit.',
+      label: 'Header name',
+      placeholder: 'e.g. Stage',
+      confirmText: 'Insert column',
+      validate: (v) => (taken.includes(v.toLowerCase()) ? `There is already a column named “${v}”.` : null),
+    });
+    if (header) await runColumns({ action: 'insert', column: h.letter, side, header, expectedHeader: h.header }, `Inserting “${header}” ${side} of ${h.letter}…`);
+  }
+
+  async function addUpdateColumn() {
+    setColMenu(null);
+    const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' });
+    const ok = await confirmDialog({
+      title: `Add an update column for ${today}?`,
+      text: 'A new column dated today is added left of the latest update, for every department. Each department then types this week’s update on its own rows, and the Dashboard shows it as a new “Status as of” date.',
+      confirmText: 'Add update column',
+    });
+    if (ok) await runColumns({ action: 'update' }, `Adding the ${today} update column…`);
+  }
+
+  async function deleteColumn() {
+    const h = cols[colMenu.c];
+    setColMenu(null);
+    const ok = await confirmDialog({
+      title: `Delete column ${h.letter} “${h.header || h.label}”?`,
+      text: 'The whole column is removed from the Excel file for every department, and the columns to its right move one place left.',
+      confirmText: 'Delete column',
+      tone: 'danger',
+    });
+    if (ok) await runColumns({ action: 'delete', column: h.letter, expectedHeader: h.header }, `Deleting column ${h.letter}…`);
+  }
 
   // Arrow keys step over merged areas; `extend` (Shift) grows the selected range instead
   function move(dr, dc, extend = false) {
@@ -347,6 +434,7 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
 
   // Keep the selected cell visible
   useEffect(() => {
+    if (keepScroll.current) { keepScroll.current = false; return; }
     const el = scrollRef.current?.querySelector(`[data-cell="${sel.r}-${sel.c}"]`);
     el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [sel]);
@@ -700,6 +788,28 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
         isFull={isFull}
         toggleFullscreen={toggleFullscreen}
       />
+      {columnBusy && (
+        <div className="xl-busy" role="status" aria-live="polite">
+          <div className="xl-busy__box">
+            <span className="loader__spinner" aria-hidden="true" />
+            <b>{columnBusy}</b>
+            <small>Updating the Excel file for every department. This takes a few seconds; please wait.</small>
+          </div>
+        </div>
+      )}
+      {colMenu && (
+        <div className="xl-context" role="menu" style={{ left: colMenu.x, top: colMenu.y }}>
+          <button type="button" role="menuitem" disabled={!!saving} onClick={() => insertColumn('left')}>Insert column left</button>
+          <button type="button" role="menuitem" disabled={!!saving} onClick={() => insertColumn('right')}>Insert column right</button>
+          <button type="button" role="menuitem" disabled={!!saving} onClick={addUpdateColumn}>Add this week’s update column</button>
+          {grid.canDeleteColumns && (
+            <button type="button" role="menuitem" className="xl-context__danger" disabled={!!saving} onClick={deleteColumn}>
+              Delete column {cols[colMenu.c]?.letter}
+            </button>
+          )}
+          <p className="xl-context__note">Changes the Excel file for every department.{grid.canDeleteColumns ? '' : ' Only admins can delete columns.'}</p>
+        </div>
+      )}
       {rowMenu && (
         <div className="xl-context" role="menu" style={{ left: rowMenu.x, top: rowMenu.y }}>
           <button type="button" role="menuitem" onClick={() => setRowsHidden(rowMenu.keys, true)}>
@@ -759,8 +869,9 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
                 <th
                   key={h.letter}
                   className={selCols.has(c) ? 'xl-letter xl-letter--sel' : 'xl-letter'}
-                  title={`Select column ${h.letter} (Shift+click to select several columns)`}
-                  onMouseDown={(e) => selectColumns(c, e.shiftKey)}
+                  title={`Select column ${h.letter} (Shift+click to select several columns${onColumns ? ', right-click to insert columns' : ''})`}
+                  onMouseDown={(e) => { if (e.button === 0) selectColumns(c, e.shiftKey); }}
+                  onContextMenu={(e) => openColMenu(e, c)}
                 >
                   {h.letter}
                 </th>

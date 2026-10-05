@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAllSheets, useScorecardSheets, useSheetGrid, useStrategyMap, useWorkbook } from '../../hooks/useStrategy';
 import SheetGrid from '../../components/tables/SheetGrid';
-import { formatGridCell, mergeGridCells, setHiddenRows, updateGridCell } from '../../api/strategyApi';
+import { changeGridColumns, formatGridCell, mergeGridCells, setHiddenRows, updateGridCell } from '../../api/strategyApi';
+import { toastSuccess } from '../../utils/dialog';
 import { getErrorMessage } from '../../api/axios';
 import Loader from '../../components/common/Loader';
 import ErrorMessage from '../../components/common/ErrorMessage';
@@ -135,6 +136,26 @@ function SheetView({ workbookId, sheet, workbook, gridState, sheets, onSheetChan
   }
 
   // Hides/unhides rows in the user's own view (saved to their account)
+  // Inserts / deletes a column in the Excel file, then reloads the sheet (columns moved). A delete of
+  // a column with values keeps the CONFIRM_DELETE code so SheetGrid can ask the user again.
+  async function changeColumns(request) {
+    let result;
+    try {
+      result = await changeGridColumns({ workbook: workbookId, sheet: grid.sheet, ...request });
+    } catch (err) {
+      const error = toGridError(err);
+      error.code = err.response?.data?.code;
+      error.filled = err.response?.data?.filled;
+      error.header = err.response?.data?.header;
+      throw error;
+    }
+    toastSuccess(request.action === 'delete'
+      ? `Column ${result.column} deleted from the Excel file.`
+      : `Column ${result.column} “${result.header}” added to the Excel file.`);
+    gridState.reload(true);
+    return result;
+  }
+
   async function hideRows({ keys, hidden, all }) {
     try {
       return await setHiddenRows({ workbook: workbookId, sheet: grid.sheet, keys, hidden, all });
@@ -176,6 +197,7 @@ function SheetView({ workbookId, sheet, workbook, gridState, sheets, onSheetChan
             onFormatCell={formatCell}
             onMergeCells={mergeCells}
             onHideRows={hideRows}
+            onColumns={grid.canInsertColumns ? changeColumns : undefined}
             sheets={sheets}
             onSheetChange={onSheetChange}
           />
@@ -226,7 +248,7 @@ export default function StrategyMap() {
 
   return (
     <div className="page">
-      <h1 className="page__title">Strategy Map</h1>
+      <h1 className="page__title">Strategy Scoreboard</h1>
 
       <div className="toolbar">
         <div className="segmented" role="group" aria-label="View">

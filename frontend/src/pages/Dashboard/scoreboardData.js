@@ -1,0 +1,240 @@
+// Calculations for the dashboard scoreboard (status categories, "worth raising" items, trend series).
+// Projects come from GET /api/strategy/scoreboard; see backend scoreboard.service.
+
+/**
+ * Full project lists per week from the compact API response: the static `projects` merged with each
+ * week's `items`. A carried-forward note (`from`) is taken from the week it was written in.
+ * Returns [{ label, date, projects }] oldest first.
+ */
+export function expandSnapshots(data) {
+  const byLabel = new Map(data.snapshots.map((s) => [s.label, s]));
+  return data.snapshots.map((s) => ({
+    label: s.label,
+    date: s.date,
+    projects: data.projects.map((p, i) => {
+      const it = s.items[i];
+      const note = it.from ? byLabel.get(it.from)?.items[i]?.note || '' : it.note || '';
+      return {
+        ...p,
+        note,
+        noteFrom: it.from || null,
+        stage: it.stage,
+        pct: it.pct ?? null,
+        waiting: it.waiting || null,
+        noSavings: Boolean(it.noSavings),
+      };
+    }),
+  }));
+}
+
+// Each project is in exactly one category: completed first, then its traffic light
+export const CATEGORIES = [
+  { key: 'completed', label: 'Completed', color: 'var(--sb-completed)', empty: 'No projects are completed yet.' },
+  { key: 'ontrack', label: 'On track', color: 'var(--sb-ontrack)', empty: 'No projects are on track.' },
+  { key: 'behind', label: 'Behind', color: 'var(--sb-behind)', empty: 'No projects are behind.' },
+  { key: 'atrisk', label: 'At risk', color: 'var(--sb-atrisk)', empty: 'No projects are at risk.' },
+  { key: 'unreported', label: 'No traffic light', color: 'var(--sb-unreported)', empty: 'Every project has a traffic light.' },
+];
+
+export function category(d) {
+  if (d.stage === 'Complete') return 'completed';
+  if (!d.status) return 'unreported';
+  if (d.status === 'On Track') return 'ontrack';
+  if (d.status === 'Behind') return 'behind';
+  return 'atrisk'; // At Risk, Off Track
+}
+
+export const STAGE_COLORS = {
+  Complete: 'var(--sb-st-complete)',
+  'Rolling out': 'var(--sb-st-rollout)',
+  Testing: 'var(--sb-st-testing)',
+  'In build': 'var(--sb-st-build)',
+  Review: 'var(--sb-st-review)',
+  Sourcing: 'var(--sb-st-sourcing)',
+  Waiting: 'var(--sb-st-waiting)',
+  'Project China': 'var(--sb-st-china)',
+};
+export const stageColor = (stage) => STAGE_COLORS[stage] || 'var(--sb-st-review)';
+export const STAGE_LABEL = { Waiting: 'Waiting on others', 'Project China': 'In Project China' };
+
+// Whole-number shares of `total` that add up to the rounded total share (largest remainder)
+export function shares(counts, total) {
+  if (!total) return counts.map(() => 0);
+  const raw = counts.map((c) => (c / total) * 100);
+  const out = raw.map(Math.floor);
+  let left = Math.round((counts.reduce((a, b) => a + b, 0) / total) * 100) - out.reduce((a, b) => a + b, 0);
+  const order = raw.map((r, i) => [r - out[i], i]).sort((a, b) => b[0] - a[0]);
+  for (let j = 0; left > 0 && j < order.length; j++, left--) out[order[j][1]]++;
+  return out;
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// "2026-09" -> Date(2026, 8, 1); null for text like "CDD dependent"
+export function monthDate(value) {
+  const m = /^(\d{4})-(\d{2})$/.exec(value || '');
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, 1) : null;
+}
+export const fmtMonth = (d) => `${MONTHS[d.getMonth()]} ’${String(d.getFullYear()).slice(2)}`;
+export function fmtWhen(value) {
+  const d = monthDate(value);
+  return d ? fmtMonth(d) : (value || 'Not set');
+}
+export const shortName = (name) => String(name || '').replace(/\s*\(.*\)\s*$/, '').trim();
+
+// The date a snapshot stands for: its column date, or today for a sheet without dated updates
+export const snapshotDate = (snap) => (snap?.date ? new Date(`${snap.date}T00:00:00`) : new Date());
+
+/**
+ * Cards for "Worth raising at Execom", derived from the sheet as of `asOf`. Each item:
+ * { tone, title, text, list } where `list` are the projects behind it.
+ */
+export function watchItems(projects, asOf) {
+  const items = [];
+  const open = projects.filter((d) => d.stage !== 'Complete');
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const names = (list, extra = () => '') => `${list.map((d) => `${shortName(d.name)}${extra(d)}`).join(', ')}.`;
+
+  const flagged = open.filter((d) => ['behind', 'atrisk'].includes(category(d)));
+  if (flagged.length) {
+    items.push({
+      tone: 'stop',
+      title: `${plural(flagged.length, 'project is', 'projects are')} reported behind or at risk`,
+      text: names(flagged, (d) => ` (${d.status.toLowerCase()})`),
+      list: flagged,
+    });
+  }
+
+  const thisMonth = open.filter((d) => {
+    const e = monthDate(d.done);
+    return e && e.getFullYear() === asOf.getFullYear() && e.getMonth() === asOf.getMonth();
+  });
+  if (thisMonth.length) {
+    items.push({
+      tone: 'stop',
+      title: `${plural(thisMonth.length, 'project is', 'projects are')} due this month`,
+      text: names(thisMonth, (d) => (d.waiting ? ` (waiting on ${d.waiting})` : '')),
+      list: thisMonth,
+    });
+  }
+
+  const overdue = open.filter((d) => {
+    const e = monthDate(d.done);
+    return e && new Date(e.getFullYear(), e.getMonth() + 1, 1) <= asOf;
+  });
+  if (overdue.length) {
+    items.push({
+      tone: 'stop',
+      title: `${plural(overdue.length, 'project is', 'projects are')} past the completion date`,
+      text: names(overdue, (d) => ` (due ${fmtWhen(d.done)})`),
+      list: overdue,
+    });
+  }
+
+  const cost = projects.filter((d) => d.noSavings);
+  if (cost.length) {
+    items.push({
+      tone: 'warn',
+      title: `${plural(cost.length, 'cost-reduction project shows', 'cost-reduction projects show')} 0% savings so far`,
+      text: `${cost[0].kpi}${cost[0].target ? ` (target ${cost[0].target.replace(/\n/g, ', ')})` : ''}: ${names(cost)}`,
+      list: cost,
+    });
+  }
+
+  const china = open.filter((d) => d.stage === 'Project China');
+  if (china.length) {
+    items.push({
+      tone: 'china',
+      title: `${plural(china.length, 'project is', 'projects are')} folded into Project China`,
+      text: 'Their progress now depends on that umbrella project.',
+      list: china,
+    });
+  }
+
+  const sourcing = open.filter((d) => d.stage === 'Sourcing');
+  if (sourcing.length) {
+    items.push({
+      tone: 'sourcing',
+      title: `${plural(sourcing.length, 'project is', 'projects are')} still sourcing suppliers`,
+      text: names(sourcing, (d) => ` (launched ${fmtWhen(d.launch)})`),
+      list: sourcing,
+    });
+  }
+
+  open.filter((d) => d.stage === 'Waiting' && !thisMonth.includes(d)).forEach((d) => {
+    items.push({
+      tone: 'waiting',
+      title: `${shortName(d.name)} is waiting${d.waiting ? ` on ${d.waiting}` : ' on others'}`,
+      text: monthDate(d.done)
+        ? `Completion is set for ${fmtWhen(d.done)}.`
+        : `The completion date in the sheet is “${d.done || 'not set'}”, so there is no fixed finish yet.`,
+      list: [d],
+    });
+  });
+
+  const horizon = new Date(asOf.getTime() + 90 * 864e5);
+  const soon = open
+    .filter((d) => { const e = monthDate(d.done); return e && e >= new Date(asOf.getFullYear(), asOf.getMonth(), 1) && e <= horizon; })
+    .sort((a, b) => monthDate(a.done) - monthDate(b.done));
+  if (soon.length) {
+    items.push({
+      tone: 'testing',
+      title: `${plural(soon.length, 'project is', 'projects are')} due within 90 days`,
+      text: names(soon, (d) => ` (${fmtWhen(d.done)})`),
+      list: soon,
+    });
+  }
+
+  const noted = projects.filter((d) => d.execomNotes);
+  if (noted.length) {
+    items.push({
+      tone: 'note',
+      title: `${plural(noted.length, 'project has', 'projects have')} Execom notes`,
+      text: names(noted),
+      list: noted,
+    });
+  }
+
+  const unreported = projects.filter((d) => category(d) === 'unreported');
+  if (unreported.length) {
+    items.push({
+      tone: 'muted',
+      title: `${plural(unreported.length, 'project has', 'projects have')} no traffic light`,
+      text: 'The Traffic Light cell is empty in the sheet, so they are not counted as on track, behind or at risk.',
+      list: unreported,
+    });
+  }
+  return items;
+}
+
+// ---- Trend over time ----
+export const TREND_GROUPS = [
+  { key: 'persp', label: 'Perspective', plural: 'perspectives', of: (d) => d.persp },
+  { key: 'kra', label: 'KRA', plural: 'KRAs', of: (d) => d.kra || 'Not set' },
+  { key: 'kpi', label: 'KPI', plural: 'KPIs', of: (d) => d.kpi || 'Not set' },
+  { key: 'project', label: 'Project', plural: 'projects', of: (d) => d.name },
+];
+
+const progress = (d) => (d.stage === 'Complete' ? 100 : d.pct || 0);
+
+/**
+ * Lines for the trend chart: [{ key, name, values: [number|null per snapshot] }]. Projects: their
+ * reported %, only those that ever reported one. Groups: average of their projects (no percentage
+ * = 0%, completed = 100%). Order follows the sheet, so each line keeps its color.
+ */
+export function trendSeries(snapshots, groupKey) {
+  const group = TREND_GROUPS.find((g) => g.key === groupKey);
+  const keys = [];
+  snapshots.forEach((s) => s.projects.forEach((d) => { const k = group.of(d); if (!keys.includes(k)) keys.push(k); }));
+  const rows = keys.map((k) => {
+    const values = snapshots.map((s) => {
+      const members = s.projects.filter((d) => group.of(d) === k);
+      if (!members.length) return null;
+      if (groupKey === 'project') return members[0].stage === 'Complete' ? 100 : members[0].pct;
+      return members.reduce((sum, d) => sum + progress(d), 0) / members.length;
+    });
+    return { key: k, name: groupKey === 'project' ? shortName(k) : k, values };
+  });
+  if (groupKey !== 'project') return { rows, excluded: 0 };
+  const shown = rows.filter((r) => r.values.some((v) => v !== null && v > 0));
+  return { rows: shown, excluded: rows.length - shown.length };
+}

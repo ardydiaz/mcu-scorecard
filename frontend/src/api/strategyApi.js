@@ -21,20 +21,6 @@ export async function getWorkbook({ workbook } = {}) {
   return data;
 }
 
-// Perspective > Objective > KRA > KPI > Project tree, already filtered to the user's departments.
-// `department` only has an effect for admins.
-export async function getScorecard({ workbook, sheet, department, refresh } = {}) {
-  const { data } = await api.get('/strategy/scorecard', {
-    params: {
-      workbook: workbook || undefined,
-      sheet: sheet || undefined,
-      department: department || undefined,
-      refresh: refresh ? 1 : undefined,
-    },
-  });
-  return data;
-}
-
 // The sheet as a spreadsheet grid, filtered on Lead by the user's department (admins may pick one)
 export async function getSheetGrid({ workbook, sheet, department, refresh } = {}) {
   const { data } = await api.get('/strategy/grid', {
@@ -67,11 +53,32 @@ export async function mergeGridCells({ workbook, sheet, row, endRow, startColumn
   return data;
 }
 
+// Column changes in the Excel file: action 'insert' (column + side + header), 'update' (today's
+// update column) or 'delete' (admins). `expectedHeader` makes the server refuse when the column moved.
+// A delete of a column with values fails with code CONFIRM_DELETE until `confirm` is sent.
+export async function changeGridColumns({ workbook, sheet, action, column, side, header, expectedHeader, confirm }) {
+  const { data } = await api.post('/strategy/grid/columns', { workbook, sheet, action, column, side, header, expectedHeader, confirm });
+  return data;
+}
+
 // Hides (hidden: true) or unhides rows in the user's own view; `all` with hidden: false unhides
 // everything. Returns the sheet's hidden row keys. The Excel file isn't changed.
 export async function setHiddenRows({ workbook, sheet, keys = [], hidden, all = false }) {
   const { data } = await api.put('/strategy/grid/hidden-rows', { workbook, sheet, keys, hidden, all });
   return data.hiddenKeys;
+}
+
+// Dashboard scoreboard: { sheet, academicYear, snapshots: [{ label, date, projects }] (oldest first), stageColumn, … }
+export async function getScoreboard({ workbook, sheet, department, refresh } = {}) {
+  const { data } = await api.get('/strategy/scoreboard', {
+    params: {
+      workbook: workbook || undefined,
+      sheet: sheet || undefined,
+      department: department || undefined,
+      refresh: refresh ? 1 : undefined,
+    },
+  });
+  return data;
 }
 
 export async function getStrategyMap({ workbook, sheet } = {}) {

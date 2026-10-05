@@ -8,7 +8,6 @@ import { logActivity } from '../../api/auditApi';
 const PAGE_NAMES = {
   '/dashboard': 'Dashboard',
   '/strategy-map': 'Strategy Map',
-  '/scorecard': 'Strategy Scorecard',
   '/profile': 'Profile',
   '/users': 'Users (admin)',
   '/departments': 'Departments (admin)',

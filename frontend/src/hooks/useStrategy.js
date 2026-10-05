@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getScorecard, getSheetGrid, getSheets, getStrategyMap, getWorkbook, getWorkbooks } from '../api/strategyApi';
+import { getScoreboard, getSheetGrid, getSheets, getStrategyMap, getWorkbook, getWorkbooks } from '../api/strategyApi';
 import { getErrorMessage } from '../api/axios';
 
 // Runs `load` whenever its dependencies change; `reload(true)` bypasses the server cache.
@@ -90,15 +90,15 @@ export function useWorkbook({ workbook } = {}) {
   return useAsync(() => getWorkbook({ workbook }), [workbook]);
 }
 
-export function useScorecard({ workbook, sheet, department }) {
-  return useAsync((refresh) => getScorecard({ workbook, sheet, department, refresh }), [workbook, sheet, department]);
-}
-
 export function useSheetGrid({ workbook, sheet, department }) {
   return useAsync(
     (refresh) => (sheet ? getSheetGrid({ workbook, sheet, department, refresh }) : Promise.resolve(null)),
     [workbook, sheet, department]
   );
+}
+
+export function useScoreboard({ workbook, sheet, department }) {
+  return useAsync((refresh) => getScoreboard({ workbook, sheet, department, refresh }), [workbook, sheet, department]);
 }
 
 export function useStrategyMap({ workbook, sheet }) {
