@@ -162,7 +162,6 @@ export default function Dashboard() {
                 {watch.map((w) => (
                   <button key={w.title} type="button" className={`sb-w sb-w--${w.tone}`} onClick={() => setDetail({ title: w.title, sub: w.text, list: w.list })}>
                     <b>{w.title}</b>
-                    <p>{w.text}</p>
                   </button>
                 ))}
               </div>

@@ -34,9 +34,9 @@
   --radius-sm: 10px;
   --shadow: 0 1px 2px rgba(46, 0, 70, 0.05), 0 6px 20px rgba(46, 0, 70, 0.06);
   --shadow-lg: 0 12px 40px rgba(46, 0, 70, 0.16);
-  --font-display: 'Libre Baskerville', Georgia, serif;
+  --font-display: 'Roboto', 'Segoe UI', system-ui, sans-serif;
   color-scheme: light;
-  font-family: 'Montserrat', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+  font-family: 'Roboto', 'Segoe UI', system-ui, -apple-system, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -69,7 +69,7 @@
 
 body {
   margin: 0;
-  background: #2e0046;
+  background: #fbf8f2;
   color: var(--text);
   font-size: 14.5px;
   line-height: 1.55;
@@ -237,7 +237,7 @@ h1, h2, h3 { margin: 0; line-height: 1.25; }
 .sidebar {
   width: 248px;
   flex-shrink: 0;
-  background: #5c297c;
+  background: #491464;
   color: var(--sidebar-text);
   padding: 22px 14px;
   position: sticky;
@@ -288,7 +288,7 @@ h1, h2, h3 { margin: 0; line-height: 1.25; }
   align-items: center;
   gap: 12px;
   padding: 12px 28px;
-  background: #712c83;
+  background: #2e0046;
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border);
   box-shadow: inset 0 -2px 0 -1px rgba(253, 193, 49, 0.35);
@@ -298,7 +298,7 @@ h1, h2, h3 { margin: 0; line-height: 1.25; }
 }
 .header__menu { display: none; background: none; border: 0; color: var(--text); font-size: 20px; cursor: pointer; }
 .header__spacer { flex: 1; }
-.header__user { display: flex; align-items: center; gap: 8px; color: var(--text); text-decoration: none; }
+.header__user { display: flex; align-items: center; gap: 8px; color: #fff; text-decoration: none; }
 
 /* Page content */
 .page { display: flex; flex-direction: column; gap: 20px; max-width: 100%; }
@@ -1175,10 +1175,10 @@ a.btn { text-decoration: none; }
 
 /* ===== Dashboard scoreboard (pages/Dashboard), styled after the ITD Scoreboard sample ===== */
 .sb {
-  --sb-serif: 'Playfair Display', Georgia, serif;
-  --sb-mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+  --sb-serif: 'Roboto', 'Segoe UI', system-ui, sans-serif;
+  --sb-mono: 'Roboto', 'Segoe UI', system-ui, sans-serif;
   /* status: reserved for project state, never reused for trend lines */
-  --sb-completed: #2d6cb5; --sb-ontrack: #2f7d5a; --sb-behind: #c9a227; --sb-atrisk: #a93b3b; --sb-unreported: #9a8fa6;
+  --sb-completed: #2f7d5a; --sb-ontrack: #2d6cb5; --sb-behind: #c9a227; --sb-atrisk: #a93b3b; --sb-unreported: #ffc107;
   --sb-st-complete: #2f7d5a; --sb-st-rollout: #57177a; --sb-st-testing: #8b5cb0; --sb-st-build: #3b0a5c; --sb-st-review: #8c8298;
   --sb-st-sourcing: #9a7b14; --sb-st-waiting: #c0562f; --sb-st-china: #2b7a8c;
   /* trend lines: validated categorical order for the light surface */
@@ -1188,7 +1188,7 @@ a.btn { text-decoration: none; }
 }
 @media (prefers-color-scheme: dark) {
   .sb {
-    --sb-completed: #79aee8; --sb-ontrack: #3fcb86; --sb-behind: #e5c04b; --sb-atrisk: #e5534b; --sb-unreported: #8a7d99;
+    --sb-completed: #3fcb86; --sb-ontrack: #79aee8; --sb-behind: #e5c04b; --sb-atrisk: #e5534b; --sb-unreported: #ffc107;
     --sb-st-rollout: #7a3fa8; --sb-st-build: #6b3a96; --sb-st-review: #7a7088;
     --sb-series-1: #3987e5; --sb-series-2: #d95926; --sb-series-3: #199e70; --sb-series-4: #c98500;
     --sb-series-5: #d55181; --sb-series-6: #008300; --sb-series-7: #9085e9; --sb-series-8: #e66767; --sb-series-other: #6e6480;
@@ -1283,7 +1283,8 @@ a.btn { text-decoration: none; }
 .sb-watch { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
 .sb-w { --wc: #c9a227; width: 100%; padding: 14px 18px; text-align: left; border: 1px solid var(--border); border-left: 5px solid var(--wc); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; cursor: pointer; transition: box-shadow 0.2s ease, transform 0.2s ease; }
 .sb-w:hover { transform: translateY(-3px); box-shadow: 0 10px 22px rgba(59, 10, 92, 0.15); }
-.sb-w b { display: block; margin-bottom: 6px; font-family: var(--sb-serif); font-size: 16px; font-weight: 700; line-height: 1.3; }
+.sb-w { display: flex; align-items: center; min-height: 64px; }
+.sb-w b { display: block; margin-bottom: 0; font-family: var(--sb-serif); font-size: 16px; font-weight: 700; line-height: 1.3; }
 .sb-w p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .sb-w--stop { --wc: var(--sb-atrisk); }
 .sb-w--warn { --wc: var(--sb-behind); }
@@ -1346,7 +1347,7 @@ a.btn { text-decoration: none; }
 .sb-dialog::backdrop { background: rgba(30, 14, 46, 0.6); }
 .sb-dialog__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 24px; color: #fff; background: linear-gradient(160deg, #3b0a5c, #57177a); }
 .sb-dialog__head h3 { margin: 0; font-family: var(--sb-serif); font-size: 22px; font-weight: 700; line-height: 1.25; }
-.sb-dialog__head p { margin: 4px 0 0; max-width: 60ch; color: #e0d2ee; font-size: 13px; line-height: 1.5; }
+.sb-dialog__head p { color: #e0d2ee; font-size: 13px; line-height: 1.5; }
 .sb-dialog__close { flex: none; padding: 7px 15px; border: 0; border-radius: 100px; background: #e5c04b; color: #3b0a5c; font-family: var(--sb-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; }
 .sb-dialog__body { padding: 8px 24px 24px; overflow: auto; }
 .sb-group { display: flex; align-items: baseline; gap: 10px; margin: 20px 0 8px; color: #3b0a5c; font-family: var(--sb-serif); font-size: 17px; font-weight: 700; }
@@ -1404,7 +1405,7 @@ a.btn { text-decoration: none; }
 .xl-busy__box {
   display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 360px; padding: 24px 28px;
   border-top: 4px solid var(--gold-ignite); border-radius: 16px; background: var(--surface); color: var(--text);
-  box-shadow: var(--shadow-lg); font-family: Montserrat, 'Segoe UI', sans-serif; text-align: center;
+  box-shadow: var(--shadow-lg); font-family: 'Roboto', 'Segoe UI', sans-serif; text-align: center;
 }
 .xl-busy__box .loader__spinner { width: 42px; height: 42px; border-width: 4px; border-color: var(--surface-2); border-top-color: var(--gold-ignite); border-right-color: var(--purple-haze); }
 .xl-busy__box b { font-size: 15px; }

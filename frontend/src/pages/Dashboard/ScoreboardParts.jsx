@@ -259,7 +259,9 @@ export function TrendChart({ snapshots, selected, onSelect, onOpen }) {
         <p className="sb-empty">No project has reported a completion percentage yet.</p>
       ) : (
         <>
-          {rows.length > 1 && (
+          {/* Line legend only for Perspective (a few lines); KRA / KPI / Project have too many to list here,
+              so their lines are named in the hover tooltip and the table below the chart */}
+          {group === 'persp' && rows.length > 1 && (
             <div className="sb-legend" role="group" aria-label="Show or hide lines">
               {colored.map((r) => (
                 <button key={r.key} type="button" aria-pressed={!hidden.has(r.key)} onClick={() => toggle(r.key)}>
