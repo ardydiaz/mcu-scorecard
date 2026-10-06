@@ -137,7 +137,27 @@ function CellEditor({ initial, isDate, minHeight, onCommit, onCancel, onDraftCha
  * a status bar. `onSaveCell` writes an edit to the Excel file and returns { text, identity }.
  * Carried-down values (grey italics) and formula cells are read-only.
  */
-export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells, onHideRows, onColumns, sheets = [], onSheetChange }) {
+// Clipboard text as Excel puts it there: rows on new lines, cells separated by tabs, and cells that
+// contain tabs, line breaks or quotes wrapped in "…" (with "" for a quote)
+function parseClipboard(text) {
+  const out = [];
+  let row = [];
+  let cell = '';
+  let quoted = false;
+  const s = String(text || '').replace(/\r\n?/g, '\n');
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (quoted) {
+      if (ch === '"' && s[i + 1] === '"') { cell += '"'; i++; } else if (ch === '"') quoted = false; else cell += ch;
+    } else if (ch === '"' && cell === '') quoted = true;
+    else if (ch === '\t') { row.push(cell); cell = ''; } else if (ch === '\n') { row.push(cell); out.push(row); row = []; cell = ''; } else cell += ch;
+  }
+  if (cell !== '' || row.length) { row.push(cell); out.push(row); }
+  return out;
+}
+const clipboardCell = (v) => (/[\t\n\r"]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+
+export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells, onHideRows, onColumns, onPasteCells, sheets = [], onSheetChange }) {
   const format = grid.format;
   const [zoomPct, setZoomPct] = useState(() => readZoom(format?.zoom || 100));
   const zoom = zoomPct / 100;
@@ -147,7 +167,9 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
   const rows = useMemo(() => allRows.filter((x) => !hiddenKeys.has(x.key)), [allRows, hiddenKeys]);
   const [rowMenu, setRowMenu] = useState(null); // { x, y, keys } for the row-number right-click menu
   const [colMenu, setColMenu] = useState(null); // { x, y, c } for the column-letter right-click menu
-  const [columnBusy, setColumnBusy] = useState(''); // message on the loader shown while a column change runs
+  const [columnBusy, setColumnBusy] = useState(''); // message on the loader shown while a column change or paste runs
+  const [copied, setCopied] = useState(null); // { r1, r2, c1, c2 }: copied cells, shown with a dashed border
+  const [cellMenu, setCellMenu] = useState(null); // { x, y } for the right-click menu on cells
   // Local copy of the workbook's style table; formatting done here adds styles to it
   const [styles, setStyles] = useState(format?.styles || []);
   const [sel, setSel] = useState({ r: 0, c: 0 });
@@ -333,11 +355,157 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
   }
 
   useEffect(() => {
-    if (!rowMenu && !colMenu) return undefined;
-    const close = (e) => { if (!e.target.closest?.('.xl-context')) { setRowMenu(null); setColMenu(null); } };
+    if (!rowMenu && !colMenu && !cellMenu) return undefined;
+    const close = (e) => { if (!e.target.closest?.('.xl-context')) { setRowMenu(null); setColMenu(null); setCellMenu(null); } };
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
-  }, [rowMenu, colMenu]);
+  }, [rowMenu, colMenu, cellMenu]);
+
+  // ---- Copy / paste (Ctrl+C / Ctrl+V), like Excel: values only, as tab-separated text, so they also
+  // go to and from Excel itself. Pasting writes the values into the Excel file. ----
+
+  const selectionBounds = () => (isRange ? { ...range } : { r1: sel.r, r2: sel.r, c1: sel.c, c2: sel.c });
+  const closeMenus = () => { setCellMenu(null); setColMenu(null); setRowMenu(null); };
+
+  async function copySelection() {
+    closeMenus();
+    const b = selectionBounds();
+    // Carried-down values (grey) are empty cells in Excel, so they are copied as empty
+    const text = rows.slice(b.r1, b.r2 + 1)
+      .map((row) => cols.slice(b.c1, b.c2 + 1).map((h) => clipboardCell(row.inherited.includes(h.index) ? '' : row.cells[h.index] || '')).join('\t'))
+      .join('\r\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(b);
+      const n = (b.r2 - b.r1 + 1) * (b.c2 - b.c1 + 1);
+      setStatus(`Copied ${n} cell${n === 1 ? '' : 's'}. Select where to paste and press Ctrl+V (Esc clears the copy).`);
+    } catch {
+      setStatus("Couldn't copy: the browser blocked access to the clipboard.", true);
+    }
+    scrollRef.current?.focus({ preventScroll: true });
+  }
+
+  // Writes a list of { r, c, value } (grid positions) to Excel in one paste; returns false when nothing was written
+  async function runPaste(list, { record = true, verb = 'Paste' } = {}) {
+    if (!onPasteCells) return false;
+    const blockedCells = list.filter(({ r, c }) => isReadOnly(rows[r], cols[c].index));
+    if (blockedCells.length) {
+      const b = blockedCells[0];
+      setStatus(`Nothing was pasted: ${cols[b.c].letter}${rows[b.r].row}${blockedCells.length > 1 ? ` and ${blockedCells.length - 1} more cell(s)` : ''} can't be edited (a formula, a value carried down from above, or a row you can't edit).`, true);
+      return false;
+    }
+    const changes = list.filter(({ r, c, value }) => (rows[r].cells[cols[c].index] || '') !== value);
+    if (!changes.length) { setStatus('Nothing to change: the cells already have those values.'); return false; }
+    if (record && changes.length > 50 && !(await confirmDialog({
+      title: `Paste ${changes.length} cells into the Excel file?`,
+      text: 'The values are written to the Excel file right away. You can undo the paste with Ctrl+Z.',
+      confirmText: 'Paste',
+    }))) return false;
+
+    const byRow = new Map();
+    for (const ch of changes) {
+      const row = rows[ch.r];
+      const col = cols[ch.c];
+      if (!byRow.has(row.row)) byRow.set(row.row, { row: row.row, identity: row.identity, cells: [] });
+      byRow.get(row.row).cells.push({ column: col.letter, value: ch.value, previous: row.cells[col.index] || '' });
+    }
+    const n = changes.length;
+    const label = `${n} cell${n === 1 ? '' : 's'}`;
+    setSaving('paste');
+    setColumnBusy(`${verb === 'Paste' ? 'Pasting' : verb === 'Undo' ? 'Undoing the paste of' : 'Redoing the paste of'} ${label}…`);
+    try {
+      const result = await onPasteCells({ targets: [...byRow.values()] });
+      const letterIndex = new Map(grid.headers.map((h, i) => [h.letter, i]));
+      setRows((all) => all.map((x) => {
+        const updates = result.cells.filter((u) => u.row === x.row);
+        if (!updates.length) return x;
+        const cells = [...x.cells];
+        updates.forEach((u) => { if (letterIndex.has(u.column)) cells[letterIndex.get(u.column)] = u.text; });
+        return { ...x, cells, identity: result.identities[x.row] || x.identity };
+      }));
+      if (record) {
+        remember({
+          kind: 'paste',
+          cells: changes.map((ch) => {
+            const row = rows[ch.r];
+            const col = cols[ch.c];
+            const saved = result.cells.find((u) => u.row === row.row && u.column === col.letter);
+            return { rowNumber: row.row, col: col.index, before: row.cells[col.index] || '', after: saved ? saved.text : ch.value };
+          }),
+        });
+      }
+      setStatus(`${verb === 'Paste' ? 'Pasted' : verb === 'Undo' ? 'Undid the paste of' : 'Redid the paste of'} ${label} in Excel`);
+      return true;
+    } catch (err) {
+      setStatus(err.message, true);
+      return false;
+    } finally {
+      setSaving(null);
+      setColumnBusy('');
+      scrollRef.current?.focus({ preventScroll: true });
+    }
+  }
+
+  // Pastes clipboard text at the selection: one value fills the whole selected range, a block
+  // starts at the selection's top-left cell (cells past the last row / column are left out)
+  async function pasteText(text) {
+    closeMenus();
+    if (editing || saving) return;
+    const data = parseClipboard(text);
+    if (!data.length) { setStatus('The clipboard is empty.', true); return; }
+    const b = selectionBounds();
+    const list = [];
+    let dropped = 0;
+    const add = (r, c, value) => {
+      const area = mergeAt(r, c);
+      if (area && (area.r0 !== r || area.c0 !== c)) return; // inside a merged cell: only its top-left cell holds a value
+      list.push({ r, c, value });
+    };
+    if (data.length === 1 && data[0].length === 1 && isRange) {
+      for (let r = b.r1; r <= b.r2; r++) for (let c = b.c1; c <= b.c2; c++) add(r, c, data[0][0]);
+    } else {
+      data.forEach((line, i) => line.forEach((value, j) => {
+        const r = b.r1 + i;
+        const c = b.c1 + j;
+        if (r >= rows.length || c >= cols.length) dropped++; else add(r, c, value);
+      }));
+    }
+    const ok = await runPaste(list);
+    if (ok && dropped) setStatus(`Pasted. ${dropped} cell(s) past the last shown row or column were left out.`);
+  }
+
+  // Paste from a menu: reads the clipboard (the browser may ask for permission once)
+  async function pasteFromMenu() {
+    closeMenus();
+    try {
+      await pasteText(await navigator.clipboard.readText());
+    } catch {
+      setStatus('The browser blocked reading the clipboard. Press Ctrl+V to paste instead.', true);
+    }
+  }
+
+  // Ctrl+V: the browser's paste event carries the clipboard text without asking for permission
+  const pasteHandled = useRef(false);
+  useEffect(() => {
+    if (!onPasteCells) return undefined;
+    const onPaste = (e) => {
+      if (editing || !scrollRef.current?.contains(document.activeElement)) return;
+      pasteHandled.current = true;
+      e.preventDefault();
+      pasteText(e.clipboardData?.getData('text/plain') || '');
+    };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  });
+
+  function openCellMenu(e) {
+    if (editing) return;
+    e.preventDefault();
+    setRowMenu(null);
+    setColMenu(null);
+    const box = containerRef.current.getBoundingClientRect();
+    setCellMenu({ x: e.clientX - box.left, y: e.clientY - box.top });
+  }
 
   // ---- Columns (changes the Excel file for everyone: insert for all users, delete for admins) ----
 
@@ -404,6 +572,23 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
       confirmText: 'Add update column',
     });
     if (ok) await runColumns({ action: 'update' }, `Adding the ${today} update column…`);
+  }
+
+  // Renames a column (admins): double-click its header, or the column menu
+  async function renameColumn(c) {
+    const h = cols[c];
+    setColMenu(null);
+    if (!h || !grid.canRenameColumns || !onColumns || saving) return;
+    const taken = grid.headers.filter((x) => x.letter !== h.letter).map((x) => (x.header || x.label || '').toLowerCase());
+    const header = await promptDialog({
+      title: `Rename column ${h.letter}`,
+      text: 'The new header is written into the Excel file for every department. For an update column, type a date such as 21-Sep-26 so it stays a week on the Dashboard.',
+      label: 'Header name',
+      value: h.header || h.label,
+      confirmText: 'Rename',
+      validate: (v) => (taken.includes(v.toLowerCase()) ? `There is already a column named “${v}”.` : v === (h.header || h.label) ? 'Type a different name.' : null),
+    });
+    if (header) await runColumns({ action: 'rename', column: h.letter, header, expectedHeader: h.header }, `Renaming column ${h.letter}…`);
   }
 
   async function deleteColumn() {
@@ -500,6 +685,23 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
     if (saving || editing) return;
     const entry = history[direction].at(-1);
     if (!entry) { setStatus(direction === 'undo' ? 'Nothing to undo' : 'Nothing to redo'); return; }
+    if (entry.kind === 'paste') {
+      const list = entry.cells.map((x) => ({
+        r: rows.findIndex((row) => row.row === x.rowNumber),
+        c: cols.findIndex((h) => h.index === x.col),
+        value: direction === 'undo' ? x.before : x.after,
+      }));
+      if (list.some((x) => x.r < 0 || x.c < 0)) {
+        setStatus(`Some pasted cells are no longer shown, so the paste can't be ${direction === 'undo' ? 'undone' : 'redone'}.`, true);
+        return;
+      }
+      if (await runPaste(list, { record: false, verb: direction === 'undo' ? 'Undo' : 'Redo' })) {
+        setHistory((h) => (direction === 'undo'
+          ? { undo: h.undo.slice(0, -1), redo: [...h.redo, entry] }
+          : { undo: [...h.undo, entry], redo: h.redo.slice(0, -1) }));
+      }
+      return;
+    }
     const row = allRows.find((x) => x.row === entry.rowNumber);
     const cellAddress = `${grid.headers[entry.col].letter}${entry.rowNumber}`;
     if (!row) { setStatus(`${cellAddress} is no longer shown, so it can't be ${direction === 'undo' ? 'undone' : 'redone'}.`, true); return; }
@@ -715,7 +917,16 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
 
   function onKeyDown(e) {
     if (editing) return;
+    if (e.key === 'Escape' && copied) { e.preventDefault(); setCopied(null); setStatus(''); return; }
     if (e.key === 'Escape' && expanded) { e.preventDefault(); setExpanded(false); return; }
+    // Excel shortcuts: Ctrl+C copies the selection, Ctrl+V pastes (the paste event normally carries the
+    // text; if the browser didn't send one, the clipboard is read instead)
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'c') { e.preventDefault(); copySelection(); return; }
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'v' && onPasteCells) {
+      pasteHandled.current = false;
+      setTimeout(() => { if (!pasteHandled.current) pasteFromMenu(); }, 80);
+      return;
+    }
     // Excel shortcuts: Ctrl+Z undo, Ctrl+Y / Ctrl+Shift+Z redo
     if ((e.ctrlKey || e.metaKey) && (onSaveCell || onFormatCell)) {
       const k = e.key.toLowerCase();
@@ -804,9 +1015,15 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
       )}
       {colMenu && (
         <div className="xl-context" role="menu" style={{ left: colMenu.x, top: colMenu.y }}>
+          <button type="button" role="menuitem" onClick={copySelection}>Copy column {cols[colMenu.c]?.letter}<kbd>Ctrl+C</kbd></button>
+          {onPasteCells && <button type="button" role="menuitem" disabled={!!saving} onClick={pasteFromMenu}>Paste<kbd>Ctrl+V</kbd></button>}
+          <div className="xl-context__sep" role="separator" />
           <button type="button" role="menuitem" disabled={!!saving} onClick={() => insertColumn('left')}>Insert column left</button>
           <button type="button" role="menuitem" disabled={!!saving} onClick={() => insertColumn('right')}>Insert column right</button>
           <button type="button" role="menuitem" disabled={!!saving} onClick={addUpdateColumn}>Add this week’s update column</button>
+          {grid.canRenameColumns && (
+            <button type="button" role="menuitem" disabled={!!saving} onClick={() => renameColumn(colMenu.c)}>Rename header</button>
+          )}
           {grid.canDeleteColumns && (
             <button type="button" role="menuitem" className="xl-context__danger" disabled={!!saving} onClick={deleteColumn}>
               Delete column {cols[colMenu.c]?.letter}
@@ -815,8 +1032,18 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
           <p className="xl-context__note">Changes the Excel file for every department.{grid.canDeleteColumns ? '' : ' Only admins can delete columns.'}</p>
         </div>
       )}
+      {cellMenu && (
+        <div className="xl-context" role="menu" style={{ left: cellMenu.x, top: cellMenu.y }}>
+          <button type="button" role="menuitem" onClick={copySelection}>Copy<kbd>Ctrl+C</kbd></button>
+          {onPasteCells && <button type="button" role="menuitem" disabled={!!saving} onClick={pasteFromMenu}>Paste<kbd>Ctrl+V</kbd></button>}
+          <p className="xl-context__note">Pasting writes the values into the Excel file (formatting is kept). Ctrl+Z undoes it.</p>
+        </div>
+      )}
       {rowMenu && (
         <div className="xl-context" role="menu" style={{ left: rowMenu.x, top: rowMenu.y }}>
+          <button type="button" role="menuitem" onClick={copySelection}>Copy<kbd>Ctrl+C</kbd></button>
+          {onPasteCells && <button type="button" role="menuitem" disabled={!!saving} onClick={pasteFromMenu}>Paste<kbd>Ctrl+V</kbd></button>}
+          <div className="xl-context__sep" role="separator" />
           <button type="button" role="menuitem" onClick={() => setRowsHidden(rowMenu.keys, true)}>
             Hide {rowMenu.keys.length === 1 ? 'row' : `${rowMenu.keys.length} rows`}
             <kbd>Ctrl+9</kbd>
@@ -884,10 +1111,16 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
             </tr>
             <tr className="xl-headrow" style={{ height: headerHeight }}>
               <th className="xl-rownum xl-rownum--head">1</th>
-              {cols.map((h) => {
+              {cols.map((h, c) => {
                 const isLead = h.letter === grid.leadColumn;
                 return (
-                  <th key={h.letter} className="xl-head" style={cellCss(style(format?.columns[h.index]?.headerStyle), zoom)}>
+                  <th
+                    key={h.letter}
+                    className={grid.canRenameColumns && onColumns ? 'xl-head xl-head--editable' : 'xl-head'}
+                    style={cellCss(style(format?.columns[h.index]?.headerStyle), zoom)}
+                    title={grid.canRenameColumns && onColumns ? 'Double-click to rename this column' : undefined}
+                    onDoubleClick={() => renameColumn(c)}
+                  >
                     <div className="xl-clip" style={{ maxHeight: headerHeight }}>{h.label}</div>
                     <FilterIcon active={isLead && grid.viewingDepartments.length > 0} />
                   </th>
@@ -931,6 +1164,13 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
                     if (row.inherited.includes(i)) classes.push('xl-cell--inherited');
                     if (selected) classes.push('xl-cell--sel');
                     if (inRange(r, c) && !selected) classes.push('xl-cell--range');
+                    if (copied && r >= copied.r1 && r <= copied.r2 && c >= copied.c1 && c <= copied.c2) {
+                      classes.push('xl-copy');
+                      if (r === copied.r1) classes.push('xl-copy--t');
+                      if (r === copied.r2 || (merged && merged.r1 >= copied.r2)) classes.push('xl-copy--b');
+                      if (c === copied.c1) classes.push('xl-copy--l');
+                      if (c === copied.c2 || (merged && merged.c1 >= copied.c2)) classes.push('xl-copy--r');
+                    }
                     if (merged) classes.push('xl-cell--merged');
                     if (saving === key) classes.push('xl-cell--saving');
                     if (errors[key]) classes.push('xl-cell--error');
@@ -943,8 +1183,11 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
                         className={classes.join(' ')}
                         style={cellCss(style(row.styles?.[i]), zoom)}
                         title={errors[key] || undefined}
+                        onContextMenu={openCellMenu}
                         onMouseDown={(e) => {
                           if (editing) return;
+                          // Right-click inside the selection keeps it (for Copy / Paste on the whole range)
+                          if (e.button === 2 && (inRange(r, c) || (sel.r === r && sel.c === c))) return;
                           if (e.shiftKey) {
                             e.preventDefault(); // don't select text
                             setAnchor((a) => a || sel);

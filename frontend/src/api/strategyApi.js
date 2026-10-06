@@ -53,6 +53,13 @@ export async function mergeGridCells({ workbook, sheet, row, endRow, startColumn
   return data;
 }
 
+// Pastes values into the Excel file: targets = [{ row, identity, cells: [{ column, value, previous }] }].
+// All or nothing; returns { cells: [{ row, column, text }], identities: { [row]: identity } }
+export async function pasteGridCells({ workbook, sheet, targets }) {
+  const { data } = await api.post('/strategy/grid/paste', { workbook, sheet, targets });
+  return data;
+}
+
 // Column changes in the Excel file: action 'insert' (column + side + header), 'update' (today's
 // update column) or 'delete' (admins). `expectedHeader` makes the server refuse when the column moved.
 // A delete of a column with values fails with code CONFIRM_DELETE until `confirm` is sent.

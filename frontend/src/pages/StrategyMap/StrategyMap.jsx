@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAllSheets, useScorecardSheets, useSheetGrid, useStrategyMap, useWorkbook } from '../../hooks/useStrategy';
 import SheetGrid from '../../components/tables/SheetGrid';
-import { changeGridColumns, formatGridCell, mergeGridCells, setHiddenRows, updateGridCell } from '../../api/strategyApi';
+import { changeGridColumns, pasteGridCells, formatGridCell, mergeGridCells, setHiddenRows, updateGridCell } from '../../api/strategyApi';
 import { toastSuccess } from '../../utils/dialog';
 import { getErrorMessage } from '../../api/axios';
 import Loader from '../../components/common/Loader';
@@ -149,11 +149,21 @@ function SheetView({ workbookId, sheet, workbook, gridState, sheets, onSheetChan
       error.header = err.response?.data?.header;
       throw error;
     }
-    toastSuccess(request.action === 'delete'
-      ? `Column ${result.column} deleted from the Excel file.`
-      : `Column ${result.column} “${result.header}” added to the Excel file.`);
+    toastSuccess({
+      delete: `Column ${result.column} deleted from the Excel file.`,
+      rename: `Column ${result.column} renamed to “${result.header}” in the Excel file.`,
+    }[request.action] || `Column ${result.column} “${result.header}” added to the Excel file.`);
     gridState.reload(true);
     return result;
+  }
+
+  // Pastes copied values into the Excel file (SheetGrid builds the targets)
+  async function pasteCells({ targets }) {
+    try {
+      return await pasteGridCells({ workbook: workbookId, sheet: grid.sheet, targets });
+    } catch (err) {
+      throw toGridError(err);
+    }
   }
 
   async function hideRows({ keys, hidden, all }) {
@@ -197,6 +207,7 @@ function SheetView({ workbookId, sheet, workbook, gridState, sheets, onSheetChan
             onFormatCell={formatCell}
             onMergeCells={mergeCells}
             onHideRows={hideRows}
+            onPasteCells={pasteCells}
             onColumns={grid.canInsertColumns ? changeColumns : undefined}
             sheets={sheets}
             onSheetChange={onSheetChange}

@@ -36,7 +36,7 @@ const ICONS = { danger: 'warning', warning: 'warning', primary: 'question', info
  * Asks for a short text (e.g. a new column's header). Resolves the trimmed text, or null on Cancel.
  * `validate(value)` returns an error message to show, or nothing when the value is fine.
  */
-export async function promptDialog({ title, text = '', label = '', placeholder = '', confirmText = 'OK', maxLength = 100, validate }) {
+export async function promptDialog({ title, text = '', label = '', placeholder = '', value = '', confirmText = 'OK', maxLength = 100, validate }) {
   const result = await Swal.fire({
     target: document.fullscreenElement || 'body',
     // Always centered: the container is shared with toasts, which place it at the top
@@ -46,6 +46,7 @@ export async function promptDialog({ title, text = '', label = '', placeholder =
     input: 'text',
     inputLabel: label,
     inputPlaceholder: placeholder,
+    inputValue: value,
     inputAttributes: { maxlength: String(maxLength), autocomplete: 'off' },
     showCancelButton: true,
     confirmButtonText: confirmText,
