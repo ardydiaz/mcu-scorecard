@@ -33,9 +33,8 @@ If the user already has a Microsoft session in the tab, clicking "Sign in" gets 
 | Page | Route |
 | --- | --- |
 | Login | `/login` |
-| Dashboard | `/dashboard` (admins get a "Sync users" button) |
+| Dashboard | `/dashboard` |
 | Strategy Map | `/strategy-map`: objectives grouped by the sheet's "Perspective" column |
-| Strategy Scorecard | `/scorecard`: the selected sheet as a searchable table |
 | Profile | `/profile` |
 
 ## Backend
@@ -75,7 +74,6 @@ Requirements: Node.js 20+, a MySQL database (tables are created on startup), and
 | GET | `/api/users/:id` | self, admin, manager |
 | PATCH | `/api/users/:id` | admin (`role`, `isActive`) |
 | PUT | `/api/users/:id/departments` | admin (`departmentIds`) |
-| POST | `/api/users/sync` | admin: imports Entra ID users and departments |
 | GET | `/api/strategy/sheets` | signed in |
 | GET | `/api/strategy/sheets/:sheet` | signed in |
 
