@@ -16,7 +16,8 @@ const adminLinks = [
   { to: '/audit-logs', label: 'Audit Logs', roles: ['admin'] },
 ];
 
-export default function Sidebar({ open, onNavigate }) {
+// `open`: slid in over the page (phones). `collapsed`: hidden to give the page the full width (larger screens).
+export default function Sidebar({ open, collapsed = false, onNavigate }) {
   const { user } = useAuth();
   const renderLink = (link) => (
     <NavLink
@@ -31,7 +32,7 @@ export default function Sidebar({ open, onNavigate }) {
   const manageLinks = adminLinks.filter((l) => l.roles.includes(user?.role));
 
   return (
-    <aside className={open ? 'sidebar sidebar--open' : 'sidebar'}>
+    <aside className={['sidebar', open && 'sidebar--open', collapsed && 'sidebar--collapsed'].filter(Boolean).join(' ')} aria-hidden={collapsed && !open ? true : undefined}>
       <div className="sidebar__brand">
         <img src="/mcu-logo.png" alt="Manila Central University" width="40" height="40" className="sidebar__logo" />
         <span>MCU Scoreboard</span>

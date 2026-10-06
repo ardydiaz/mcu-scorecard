@@ -15,8 +15,16 @@ const PAGE_NAMES = {
   '/audit-logs': 'Audit Logs (admin)',
 };
 
+const COLLAPSED_KEY = 'mcu-scorecard.sidebarCollapsed';
+const PHONE = '(max-width: 800px)';
+
 export default function AppLayout() {
+  // Phones: the sidebar slides in over the page (menuOpen). Larger screens: the ☰ button hides it so
+  // the page gets the full width (collapsed, remembered in this browser).
   const [menuOpen, setMenuOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem(COLLAPSED_KEY) === '1'; } catch { return false; }
+  });
   const { pathname } = useLocation();
   const lastLogged = useRef(null);
 
@@ -27,12 +35,21 @@ export default function AppLayout() {
     logActivity('page.view', PAGE_NAMES[pathname] || pathname, { path: pathname });
   }, [pathname]);
 
+  useEffect(() => {
+    try { localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0'); } catch { /* storage unavailable */ }
+  }, [collapsed]);
+
+  const toggleMenu = () => {
+    if (window.matchMedia(PHONE).matches) setMenuOpen((open) => !open);
+    else setCollapsed((c) => !c);
+  };
+
   return (
-    <div className="layout">
-      <Sidebar open={menuOpen} onNavigate={() => setMenuOpen(false)} />
+    <div className={collapsed ? 'layout layout--collapsed' : 'layout'}>
+      <Sidebar open={menuOpen} collapsed={collapsed} onNavigate={() => setMenuOpen(false)} />
       {menuOpen && <div className="layout__backdrop" onClick={() => setMenuOpen(false)} />}
       <div className="layout__main">
-        <Header onMenuClick={() => setMenuOpen((open) => !open)} />
+        <Header onMenuClick={toggleMenu} sidebarHidden={collapsed} />
         <main className="layout__content">
           <Outlet />
         </main>

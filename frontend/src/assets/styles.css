@@ -245,6 +245,8 @@ h1, h2, h3 { margin: 0; line-height: 1.25; }
   height: 100vh;
   overflow-y: auto;
 }
+.sidebar--collapsed { width: 0; padding-left: 0; padding-right: 0; overflow: hidden; border: 0; }
+.sidebar { transition: width 0.2s ease, padding 0.2s ease; }
 .sidebar__brand {
   display: flex;
   align-items: center;
@@ -296,7 +298,16 @@ h1, h2, h3 { margin: 0; line-height: 1.25; }
   top: 0;
   z-index: 5;
 }
-.header__menu { display: none; background: none; border: 0; color: var(--text); font-size: 20px; cursor: pointer; }
+/* ☰ button: hides / shows the sidebar (larger screens) or slides it in (phones) */
+.header__menu {
+  display: inline-grid; place-items: center; width: 38px; height: 38px; flex: none; padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 10px; background: rgba(255, 255, 255, 0.06);
+  color: #fff; cursor: pointer; transition: background 0.15s, border-color 0.15s;
+}
+.header__menu:hover { background: rgba(253, 193, 49, 0.16); border-color: var(--gold-ignite); }
+.header__menu svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.header__brand { display: inline-flex; align-items: center; gap: 10px; color: #fff; font-weight: 700; font-size: 16px; white-space: nowrap; }
+.header__brand img { border-radius: 8px; background: #212121; }
 .header__spacer { flex: 1; }
 .header__user { display: flex; align-items: center; gap: 8px; color: #fff; text-decoration: none; }
 
@@ -1163,9 +1174,11 @@ a.btn { text-decoration: none; }
     transition: transform 0.2s ease;
   }
   .sidebar--open { transform: none; }
+  /* On phones the sidebar is always the slide-in menu, whatever was chosen on a larger screen */
+  .sidebar--collapsed { width: 248px; padding: 22px 14px; }
+  .header__brand { display: none; }
   .layout__backdrop { display: block; position: fixed; inset: 0; z-index: 10; background: rgba(46, 0, 70, 0.45); }
   .header { padding: 12px 16px; }
-  .header__menu { display: block; }
   .header__name { display: none; }
   .layout__content { padding: 16px; }
   .toolbar__search { max-width: none; }
