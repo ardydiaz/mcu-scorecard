@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  CATEGORIES, STAGE_LABEL, TREND_GROUPS, category, fmtWhen, shares, shortName, stageColor, trendSeries,
+  CATEGORIES, STAGE_LABEL, TREND_GROUPS, category, fmtWhen, shares, shortName, stageColor, tierOrder, trendSeries,
 } from './scoreboardData';
 
 export const fmtLong = (d) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -8,7 +8,6 @@ export const snapLabel = (s) => (s.date ? fmtLong(new Date(`${s.date}T00:00:00`)
 const shortDate = (s) => (s.date
   ? `${new Date(`${s.date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ’${s.date.slice(2, 4)}`
   : s.label);
-const TIER_ORDER = { S: 0, A: 1, B: 2 };
 const activate = (fn) => (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); } };
 
 // ---------- Drill-down dialog ----------
@@ -36,7 +35,7 @@ function ProjectItem({ d, open }) {
           <div><span>Timeline</span><b>{d.launch ? `${fmtWhen(d.launch)} to ${fmtWhen(d.done)}` : 'Not set'}</b></div>
           {showPct && (
             <div style={{ '--sc': stageColor(d.stage) }}>
-              <span>Progress</span><b>{d.pct}% complete</b>
+              <span>Progress</span><b>{d.pct}% complete{d.pctInNote === null && d.pct < 100 ? ' (last reported)' : ''}</b>
               <div className="sb-progress"><i style={{ width: `${d.pct}%` }} /></div>
             </div>
           )}
@@ -64,7 +63,7 @@ export function DetailDialog({ detail, onClose }) {
     if (!detail && dlg.open) dlg.close();
   }, [detail]);
 
-  const list = detail ? [...detail.list].sort((a, b) => (TIER_ORDER[a.tier] ?? 9) - (TIER_ORDER[b.tier] ?? 9) || a.row - b.row) : [];
+  const list = detail ? [...detail.list].sort((a, b) => tierOrder(a.tier, b.tier) || a.row - b.row) : [];
   const perspectives = [...new Set(list.map((d) => d.persp))];
   return (
     // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
@@ -194,13 +193,14 @@ export function TierRing({ tier, projects, total, onOpen }) {
 }
 
 // ---------- 04 Trend over time ----------
-const SERIES = 8; // validated categorical slots; further lines are neutral gray (named in the legend and table)
+const SERIES = 8; // validated categorical slots
 const seriesColor = (i) => (i < SERIES ? `var(--sb-series-${i + 1})` : 'var(--sb-series-other)');
 const fmtPct = (v) => (v === null || v === undefined ? '–' : `${Math.round(v)}%`);
 
 export function TrendChart({ snapshots, selected, onSelect, onOpen }) {
   const [group, setGroup] = useState('persp');
   const [hidden, setHidden] = useState(() => new Set());
+  const [showUnchanged, setShowUnchanged] = useState(false);
   const [hoverIdx, setHoverIdx] = useState(null);
   const boxRef = useRef(null);
   const [width, setWidth] = useState(760);
@@ -214,16 +214,37 @@ export function TrendChart({ snapshots, selected, onSelect, onOpen }) {
   }, []);
 
   const { rows, excluded } = useMemo(() => trendSeries(snapshots, group), [snapshots, group]);
-  const colored = rows.map((r, i) => ({ ...r, color: seriesColor(i) }));
+  // Colors: up to 8 lines each get one. With more, the lines whose completion changed between updates
+  // get the colors (in sheet order) and the others are gray, drawn behind them: gray = no change.
+  const movedKeys = new Set(rows.filter((r) => {
+    const v = r.values.filter((x) => x !== null).map(Math.round);
+    return v.some((x, i) => i && x !== v[i - 1]);
+  }).map((r) => r.key));
+  const fewLines = rows.length <= SERIES;
+  let slot = 0;
+  const colored = rows.map((r, i) => {
+    if (fewLines) return { ...r, color: seriesColor(i), moved: movedKeys.has(r.key) };
+    const moved = movedKeys.has(r.key);
+    return { ...r, color: moved ? seriesColor(slot++) : 'var(--sb-series-other)', moved };
+  });
+  const grayMeaning = !fewLines;
   const groupDef = TREND_GROUPS.find((g) => g.key === group);
   const H = 320; const ml = 46; const mr = 24; const mt = 14; const mb = 42;
   const n = snapshots.length;
   const times = snapshots.map((s, i) => (s.date ? new Date(`${s.date}T00:00:00`).getTime() : i));
   const t0 = Math.min(...times); const t1 = Math.max(...times);
-  const left = ml + 24; const right = width - mr - 24;
-  const xs = times.map((t) => (n === 1 || t1 === t0 ? (left + right) / 2 : left + ((t - t0) / (t1 - t0)) * (right - left)));
+  // Every line starts at 0% on the left ("Start"); the update columns follow, spaced by their dates
+  const startX = ml + 24; const right = width - mr - 24;
+  const left = startX + Math.min(110, Math.max(48, (right - startX) * 0.12));
+  const xs = times.map((t) => (n === 1 || t1 === t0 ? (n === 1 ? right : left) : left + ((t - t0) / (t1 - t0)) * (right - left)));
   const y = (v) => mt + (1 - v / 100) * (H - mt - mb);
-  const visible = colored.filter((r) => !hidden.has(r.key));
+  // Gray (unchanged) lines first, so the colored ones are drawn on top
+  // With many lines (KRA / KPI / Project) only the ones that changed are drawn, unless the user asks
+  // for the unchanged (gray) ones too; those are drawn first, so the colored lines stay on top
+  const unchangedCount = grayMeaning ? colored.filter((r) => !r.moved).length : 0;
+  const visible = colored
+    .filter((r) => !hidden.has(r.key) && (!grayMeaning || r.moved || showUnchanged))
+    .sort((a, b) => (grayMeaning ? Number(a.moved) - Number(b.moved) : 0));
   const selIdx = Math.max(0, snapshots.findIndex((s) => s.label === selected));
 
   const openRow = (row) => onOpen({
@@ -234,24 +255,23 @@ export function TrendChart({ snapshots, selected, onSelect, onOpen }) {
   const toggle = (key) => setHidden((h) => { const next = new Set(h); if (next.has(key)) next.delete(key); else next.add(key); return next; });
 
   const tipRows = hoverIdx === null ? [] : visible.filter((r) => r.values[hoverIdx] !== null).sort((a, b) => b.values[hoverIdx] - a.values[hoverIdx]);
-  const changed = colored.filter((r) => {
-    const v = r.values.filter((x) => x !== null).map(Math.round);
-    return v.some((x, i) => i && x !== v[i - 1]);
-  });
+  const changed = colored.filter((r) => r.moved);
 
   return (
     <div className="sb-trend">
       <div className="sb-seg" role="group" aria-label="Group the trend by">
         {TREND_GROUPS.map((g) => (
-          <button key={g.key} type="button" aria-pressed={group === g.key} onClick={() => { setGroup(g.key); setHidden(new Set()); }}>
+          <button key={g.key} type="button" aria-pressed={group === g.key} onClick={() => { setGroup(g.key); setHidden(new Set()); setShowUnchanged(false); }}>
             {g.label}
           </button>
         ))}
       </div>
       <p className="sb-trend__note">
         {group === 'project'
-          ? `Reported completion of each project, taken from the percentage stated in its note.${excluded ? ` ${excluded} other projects have not reported a percentage yet, so they are not shown.` : ''}`
-          : `Average reported completion of the projects in each ${groupDef.label === 'Perspective' ? 'perspective' : groupDef.label}. Projects that state no percentage count as 0% until they report one, and completed projects count as 100%.`}
+          ? `Completion of each project, taken from the percentage stated in its notes.${excluded ? ` ${excluded} other projects have not reported a percentage yet, so they are not shown.` : ''}`
+          : `Average completion of the projects in each ${groupDef.label === 'Perspective' ? 'perspective' : groupDef.label}. Projects that state no percentage count as 0% until they report one, and completed projects count as 100%.`}
+        {' Every line starts at 0% and keeps the highest percentage reported so far, so it only goes up: a week whose note gives no percentage keeps the previous one.'}
+        {grayMeaning && ` Only the ${groupDef.plural} whose completion changed between updates are drawn (listed in the table below).`}
         {n === 1 && ' The sheet has one dated update so far; the trend fills in as weekly update columns are added.'}
       </p>
 
@@ -270,6 +290,12 @@ export function TrendChart({ snapshots, selected, onSelect, onOpen }) {
               ))}
             </div>
           )}
+          {grayMeaning && unchangedCount > 0 && (
+            <label className="sb-unchanged">
+              <input type="checkbox" checked={showUnchanged} onChange={(e) => setShowUnchanged(e.target.checked)} />
+              Also show the {unchangedCount} unchanged {unchangedCount === 1 ? groupDef.label : groupDef.plural} (in gray)
+            </label>
+          )}
           <div className="sb-plot" ref={boxRef}>
             <svg width={width} height={H} viewBox={`0 0 ${width} ${H}`} role="group" aria-label="Reported completion over time">
               {[0, 20, 40, 60, 80, 100].map((v) => (
@@ -278,13 +304,14 @@ export function TrendChart({ snapshots, selected, onSelect, onOpen }) {
                   <text className="sb-axis" x={ml - 8} y={y(v) + 4} textAnchor="end">{v}%</text>
                 </g>
               ))}
+              <text className="sb-axis" x={startX} y={H - mb + 22} textAnchor="middle">Start</text>
               {snapshots.map((s, i) => (
                 <text key={s.label} className="sb-axis" x={xs[i]} y={H - mb + 22} textAnchor="middle">{shortDate(s)}</text>
               ))}
               <line className="sb-selline" x1={xs[selIdx]} x2={xs[selIdx]} y1={mt} y2={H - mb} />
               {hoverIdx !== null && <line className="sb-hoverline" x1={xs[hoverIdx]} x2={xs[hoverIdx]} y1={mt} y2={H - mb} />}
               {snapshots.map((s, i) => {
-                const lb = i ? (xs[i - 1] + xs[i]) / 2 : ml;
+                const lb = i ? (xs[i - 1] + xs[i]) / 2 : (startX + xs[0]) / 2;
                 const rb = i < n - 1 ? (xs[i] + xs[i + 1]) / 2 : width - mr;
                 return (
                   <rect key={s.label} className="sb-hit" x={lb} y={mt} width={Math.max(rb - lb, 12)} height={H - mt - mb}
@@ -296,14 +323,14 @@ export function TrendChart({ snapshots, selected, onSelect, onOpen }) {
               })}
               {visible.map((r) => {
                 const pts = r.values.map((v, i) => (v === null ? null : [xs[i], y(v)])).filter(Boolean);
-                const d = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0]} ${p[1]}`).join(' ');
+                const d = [[startX, y(0)], ...pts].map((p, i) => `${i ? 'L' : 'M'}${p[0]} ${p[1]}`).join(' ');
                 const last = fmtPct(r.values.filter((v) => v !== null).at(-1));
                 return (
                   <g key={r.key} className="sb-line" tabIndex={0} role="button" aria-label={`${r.name}, ${last}. Select to see its projects`}
                     onClick={() => openRow(r)} onKeyDown={activate(() => openRow(r))}>
                     <title>{`${r.name}: ${last}. Select to see its projects`}</title>
-                    {pts.length > 1 && <path className="sb-line__hit" d={d} />}
-                    {pts.length > 1 && <path className="sb-line__vis" d={d} stroke={r.color} />}
+                    <path className="sb-line__hit" d={d} />
+                    <path className="sb-line__vis" d={d} stroke={r.color} />
                     {pts.map((p) => <circle key={p[0]} cx={p[0]} cy={p[1]} r="4" fill={r.color} className="sb-line__dot" />)}
                   </g>
                 );

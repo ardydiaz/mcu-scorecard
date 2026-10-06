@@ -1252,7 +1252,7 @@ a.btn { text-decoration: none; }
 .sb-chartlegend { display: flex; flex-wrap: wrap; gap: 16px; }
 .sb-chartlegend span { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
 .sb-chartlegend i { width: 12px; height: 12px; border-radius: 3px; }
-.sb-tiers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.sb-tiers { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
 .sb-tiercard { display: flex; flex-direction: column; align-items: center; padding: 20px 18px 18px; text-align: center; border: 1px solid var(--border); border-top: 4px solid #57177a; border-radius: 10px; background: var(--surface); }
 .sb-tiercard--attn { border-top-color: #c9a227; }
 .sb-ring { position: relative; width: 190px; max-width: 100%; aspect-ratio: 1; }
@@ -1440,3 +1440,9 @@ a.btn { text-decoration: none; }
 .kebab-menu__item--danger:hover { background: var(--error-bg); }
 .kebab-menu__divider { height: 1px; margin: 5px 4px; background: var(--border); }
 @media (prefers-color-scheme: dark) { .kebab-menu__item--danger, .kebab-menu__item--danger svg { color: #f4a3b3; stroke: #f4a3b3; } }
+.sb-unchanged { display: inline-flex; align-items: center; gap: 8px; margin: 2px 0 8px; color: var(--muted); font-size: 12.5px; cursor: pointer; }
+.sb-unchanged input { accent-color: var(--purple-haze); }
+.missing-list { margin: 8px 0 0; padding: 0; list-style: none; }
+.missing-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.missing-list li:first-child { border-top: 0; }
+.missing-list__name { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }

@@ -8,18 +8,24 @@
  */
 export function expandSnapshots(data) {
   const byLabel = new Map(data.snapshots.map((s) => [s.label, s]));
+  // Progress only goes up: a week whose note gives no percentage (or a lower one, e.g. a correction)
+  // keeps the highest percentage reported so far; once completed, a project stays at 100%
+  const best = data.projects.map(() => null);
   return data.snapshots.map((s) => ({
     label: s.label,
     date: s.date,
     projects: data.projects.map((p, i) => {
       const it = s.items[i];
       const note = it.from ? byLabel.get(it.from)?.items[i]?.note || '' : it.note || '';
+      const reported = it.stage === 'Complete' ? 100 : it.pct ?? null;
+      if (reported !== null) best[i] = Math.max(best[i] ?? 0, reported);
       return {
         ...p,
         note,
         noteFrom: it.from || null,
         stage: it.stage,
-        pct: it.pct ?? null,
+        pct: best[i],
+        pctInNote: reported,
         waiting: it.waiting || null,
         noSavings: Boolean(it.noSavings),
       };
@@ -79,7 +85,14 @@ export function fmtWhen(value) {
   const d = monthDate(value);
   return d ? fmtMonth(d) : (value || 'Not set');
 }
-export const shortName = (name) => String(name || '').replace(/\s*\(.*\)\s*$/, '').trim();
+// Tiers in display order: Class S first (the top tier), then A, B, C… alphabetically, "No tier" last
+export function tierOrder(a, b) {
+  const rank = (t) => (t === 'S' ? -1 : t === '–' ? 99 : t.charCodeAt(0));
+  return rank(a) - rank(b);
+}
+export const tiersOf = (projects) => [...new Set(projects.map((d) => d.tier))].sort(tierOrder);
+
+export const shortName =(name) => String(name || '').replace(/\s*\(.*\)\s*$/, '').trim();
 
 // The date a snapshot stands for: its column date, or today for a sheet without dated updates
 export const snapshotDate = (snap) => (snap?.date ? new Date(`${snap.date}T00:00:00`) : new Date());
@@ -214,12 +227,14 @@ export const TREND_GROUPS = [
   { key: 'project', label: 'Project', plural: 'projects', of: (d) => d.name },
 ];
 
-const progress = (d) => (d.stage === 'Complete' ? 100 : d.pct || 0);
+// The project's progress as of a week: the highest % reported so far (see expandSnapshots), 0 before any
+const progress = (d) => d.pct || 0;
 
 /**
- * Lines for the trend chart: [{ key, name, values: [number|null per snapshot] }]. Projects: their
- * reported %, only those that ever reported one. Groups: average of their projects (no percentage
- * = 0%, completed = 100%). Order follows the sheet, so each line keeps its color.
+ * Lines for the trend chart: [{ key, name, values: [number per snapshot] }]. Projects: their progress,
+ * only those that ever reported a percentage. Groups: average progress of their projects (no
+ * percentage yet = 0%, completed = 100%). Progress never goes down, so neither does any line; the
+ * chart draws each line from 0% at the start. Order follows the sheet, so each line keeps its color.
  */
 export function trendSeries(snapshots, groupKey) {
   const group = TREND_GROUPS.find((g) => g.key === groupKey);
@@ -229,7 +244,7 @@ export function trendSeries(snapshots, groupKey) {
     const values = snapshots.map((s) => {
       const members = s.projects.filter((d) => group.of(d) === k);
       if (!members.length) return null;
-      if (groupKey === 'project') return members[0].stage === 'Complete' ? 100 : members[0].pct;
+      if (groupKey === 'project') return progress(members[0]);
       return members.reduce((sum, d) => sum + progress(d), 0) / members.length;
     });
     return { key: k, name: groupKey === 'project' ? shortName(k) : k, values };

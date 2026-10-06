@@ -533,8 +533,13 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
     }
   }
 
+  // Each edit is committed once: Enter / Tab commits and moves focus back to the sheet, which blurs
+  // the editor, and the editor's blur would commit the same edit again (a second write to Excel)
+  const committed = useRef(null);
   async function commit(value, direction) {
     const edit = editing;
+    if (!edit || committed.current === edit) return;
+    committed.current = edit;
     setEditing(null);
     const moves = { down: [1, 0], up: [-1, 0], right: [0, 1], left: [0, -1] };
     if (direction) move(...moves[direction]);
@@ -963,7 +968,7 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
                             minHeight={height}
                             onDraftChange={setDraft}
                             onCommit={commit}
-                            onCancel={() => { setEditing(null); scrollRef.current?.focus(); }}
+                            onCancel={() => { committed.current = editing; setEditing(null); scrollRef.current?.focus(); }}
                           />
                         )}
                       </td>

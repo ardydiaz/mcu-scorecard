@@ -7,7 +7,7 @@ import Loader from '../../components/common/Loader';
 import ErrorMessage from '../../components/common/ErrorMessage';
 import SheetSelect from '../../components/forms/SheetSelect';
 import WorkbookSelect from '../../components/forms/WorkbookSelect';
-import { CATEGORIES, category, expandSnapshots, snapshotDate, watchItems } from './scoreboardData';
+import { CATEGORIES, category, expandSnapshots, snapshotDate, tiersOf, watchItems } from './scoreboardData';
 import { DetailDialog, StatusCards, TierRing, TrendChart, fmtLong, snapLabel } from './ScoreboardParts';
 
 /**
@@ -46,7 +46,7 @@ export default function Dashboard() {
   const isOld = Boolean(snap && latest && snap !== latest);
   const asOf = snapshotDate(snap);
   const watch = useMemo(() => (snap ? watchItems(snap.projects, snapshotDate(snap)) : []), [snap]);
-  const tiers = ['S', 'A', 'B', '–'].filter((t) => projects.some((d) => d.tier === t));
+  const tiers = tiersOf(projects);
   const select = (label) => updateParams({ asof: label === latest?.label ? '' : label });
   const fileName = (data?.workbookName || '').replace(/\.xlsx$/i, '');
   const noDepartment = data && !data.canViewAll && data.viewingDepartments.length === 0;

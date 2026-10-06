@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { assignWorkbookRowIds, getAdminWorkbooks, setDefaultWorkbook, setWorkbookStatus } from '../../api/workbookApi';
+import { assignWorkbookRowIds, getAdminWorkbooks, removeWorkbook, setDefaultWorkbook, setWorkbookStatus } from '../../api/workbookApi';
 import { getErrorMessage } from '../../api/axios';
 import Card from '../../components/common/Card';
 import Loader from '../../components/common/Loader';
@@ -92,7 +92,7 @@ export default function Workbooks() {
       confirmText: 'Publish',
     }))) return;
     const what = { published: 'published. Users can now open it', draft: 'moved back to Draft. Only admins see it now', hidden: 'hidden' }[status];
-    run(w, () => setWorkbookStatus(w.id, status), (result) => `“${w.name}” ${what}.${rowIdSummary(result?.rowIds)}`);
+    run(w, () => setWorkbookStatus(w.id, status), (result) => `“${w.name}” ${what}.${rowIdSummary(result?.rowIds)}${result?.newDefault ? ` “${result.newDefault}” is now the default file.` : ''}`);
   };
   const assignIds = async (w) => {
     if (!(await confirmDialog({
@@ -105,6 +105,20 @@ export default function Workbooks() {
     run(w, () => assignWorkbookRowIds(w.id), (result) => `Row IDs checked in “${w.name}”.${rowIdSummary(result.rowIds)}`);
   };
   const makeDefault = (w) => run(w, () => setDefaultWorkbook(w.id), `“${w.name}” now opens first for everyone.`);
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const removeFile = async (w) => {
+    const tied = [
+      w.ruleCount && plural(w.ruleCount, 'access rule made for this file', 'access rules made for this file'),
+      w.hiddenRowCount && plural(w.hiddenRowCount, 'personally hidden row', 'personally hidden rows'),
+    ].filter(Boolean);
+    if (!(await confirmDialog({
+      title: `Remove “${w.name}” from the list?`,
+      text: `The file is no longer in SharePoint, so this only cleans up the system.${tied.length ? ` Also removed: ${tied.join(' and ')}.` : ''} Rules for “All files” are kept. If the file comes back to the folder, it appears again as a Draft.`,
+      confirmText: 'Remove from list',
+      tone: 'danger',
+    }))) return;
+    run(w, () => removeWorkbook(w.id), (r) => `“${r.name}” removed from the list${r.rules || r.hiddenRows ? `, with ${[r.rules && plural(r.rules, 'access rule', 'access rules'), r.hiddenRows && plural(r.hiddenRows, 'hidden row', 'hidden rows')].filter(Boolean).join(' and ')}` : ''}.`);
+  };
 
   const present = workbooks?.filter((w) => !w.missing) || [];
   const missing = workbooks?.filter((w) => w.missing) || [];
@@ -193,11 +207,29 @@ export default function Workbooks() {
       {missing.length > 0 && (
         <Card title={`No longer in the folder (${missing.length})`}>
           <p className="muted">
-            These files were moved out of the folder or deleted in SharePoint. Their access rules are kept
-            and apply again if the file comes back.
+            These files were moved out of the folder or deleted in SharePoint. Their access rules are kept and apply
+            again if the file comes back; use ⋮ → Remove from list to clean them up. If the default file disappears,
+            the most recently modified published file becomes the default automatically.
           </p>
-          <ul className="plain-list">
-            {missing.map((w) => <li key={w.id}>{w.name} <span className="muted">· last seen {formatDate(w.updatedAt)}</span></li>)}
+          <ul className="missing-list">
+            {missing.map((w) => (
+              <li key={w.id}>
+                <div>
+                  <div className="missing-list__name">{w.name}</div>
+                  <div className="muted dept-table__desc">
+                    Last seen {formatDate(w.updatedAt)}
+                    {w.ruleCount > 0 && ` · ${plural(w.ruleCount, 'access rule', 'access rules')}`}
+                    {w.hiddenRowCount > 0 && ` · ${plural(w.hiddenRowCount, 'hidden row', 'hidden rows')}`}
+                  </div>
+                </div>
+                <ActionMenu
+                  label={`Actions for ${w.name}`}
+                  disabled={busy !== null}
+                  busy={busy === w.id}
+                  items={[{ label: 'Remove from list', icon: 'trash', danger: true, onClick: () => removeFile(w) }]}
+                />
+              </li>
+            ))}
           </ul>
         </Card>
       )}

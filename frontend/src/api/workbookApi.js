@@ -20,6 +20,13 @@ export async function assignWorkbookRowIds(id) {
   return data;
 }
 
+// Removes a file that is no longer in the folder, with its own access rules and hidden rows;
+// returns { name, rules, hiddenRows } (how many were removed)
+export async function removeWorkbook(id) {
+  const { data } = await api.delete(`/workbooks/${id}`);
+  return data;
+}
+
 export async function setDefaultWorkbook(id) {
   const { data } = await api.put(`/workbooks/${id}/default`, {});
   return data;
