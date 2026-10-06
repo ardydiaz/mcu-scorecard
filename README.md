@@ -50,7 +50,27 @@ cp .env.example .env   # then fill in the values
 npm run dev            # http://localhost:5005
 ```
 
-Requirements: Node.js 20+, a MySQL database (tables are created on startup), and an Entra ID app registration.
+Requirements: Node.js 20+, a MySQL database, and an Entra ID app registration.
+
+### Database migrations
+
+| Command | What it does |
+|---|---|
+| `npm run migrate` | Applies pending database changes: adds new columns, creates missing tables and indexes, removes replaced indexes, fills the departments table the first time. Safe to run again. |
+| `npm run migrate:check` | Only reports what is missing (changes nothing); exits with code 1 when a migration is pending. |
+
+In development (`npm run dev`) the server migrates automatically when it starts. With `NODE_ENV=production`
+it does **not**: it checks the database and refuses to start if a migration is pending. `AUTO_MIGRATE=true|false`
+in `.env` overrides either default.
+
+Deploying a new version to production:
+
+```bash
+cd backend
+npm install --omit=dev
+npm run migrate          # back up the database first; the DB user needs CREATE, ALTER and INDEX
+npm start                # or restart the PM2 / Windows service
+```
 
 ### Entra ID app registration
 
