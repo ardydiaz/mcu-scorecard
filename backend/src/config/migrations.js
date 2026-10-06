@@ -82,4 +82,4 @@ async function dropReplacedIndexes() {
   }
 }
 
-module.exports = { addMissingColumns, dropReplacedIndexes };
+module.exports = { addMissingColumns, dropReplacedIndexes, WIDENED_ENUMS, REPLACED_UNIQUE_INDEXES };

@@ -1,35 +1,33 @@
 const env = require('./config/env');
 const app = require('./app');
 const logger = require('./utils/logger');
-const { sequelize, connectDatabase } = require('./config/database');
-const { seedDepartments } = require('./services/department.service');
-const { addMissingColumns, dropReplacedIndexes } = require('./config/migrations');
+const { connectDatabase } = require('./config/database');
+const { loadDepartments } = require('./services/department.service');
+const { runMigrations, checkSchema, logResult } = require('./config/migrate');
 const { warmUp: warmUpFormats } = require('./services/format.service');
 const { initWorkbooks } = require('./services/workbook.service');
-const { importEditLogs } = require('./services/audit.service');
 
-// Register models and associations before syncing
-require('./models/User');
-require('./models/Department');
-require('./models/UserDepartment');
-require('./models/EditLog'); // older cell-edit history, copied into audit_logs once
-require('./models/AuditLog');
-require('./models/AccessRule');
-require('./models/HiddenRow');
-require('./models/Workbook');
-require('./models/UserPhoto');
+// Register models and associations before touching the database
+require('./models');
 
 async function start() {
   try {
     await connectDatabase();
-    // Adds columns to existing tables, then creates missing tables and indexes;
-    // switch to migrations before production
-    await addMissingColumns();
-    await sequelize.sync();
-    await dropReplacedIndexes();
-    // Fills departments the first time, then loads them into memory for matching
-    await seedDepartments();
-    await importEditLogs();
+
+    if (env.autoMigrate) {
+      // Development: apply database changes on every start (see `npm run migrate`)
+      logResult(await runMigrations());
+    } else {
+      // Production: the database is changed only by `npm run migrate`; refuse to start without it
+      const problems = await checkSchema();
+      if (problems.length) {
+        logger.error(`The database is not up to date (${problems.length} change(s) pending). Run "npm run migrate" first:`);
+        problems.forEach((p) => logger.error(`  - ${p}`));
+        process.exit(1);
+      }
+      await loadDepartments();
+    }
+
     // Finds the Excel files in the scorecard folder
     const defaultWorkbook = await initWorkbooks();
 

@@ -5,6 +5,11 @@ const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT, 10) || 5005,
   clientUrl: process.env.CLIENT_URL || 'http://localhost:6001',
+  // Apply database changes when the server starts. On by default except in production, where
+  // they are applied with `npm run migrate` (set AUTO_MIGRATE=true/false to override)
+  autoMigrate: process.env.AUTO_MIGRATE
+    ? process.env.AUTO_MIGRATE === 'true'
+    : (process.env.NODE_ENV || 'development') !== 'production',
 
   db: {
     host: process.env.DB_HOST || 'localhost',
