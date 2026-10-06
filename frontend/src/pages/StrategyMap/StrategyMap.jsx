@@ -2,8 +2,10 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAllSheets, useScorecardSheets, useSheetGrid, useStrategyMap, useWorkbook } from '../../hooks/useStrategy';
 import SheetGrid from '../../components/tables/SheetGrid';
-import { changeGridColumns, pasteGridCells, formatGridCell, mergeGridCells, setHiddenRows, updateGridCell } from '../../api/strategyApi';
+import { changeGridColumns, pasteGridCells, setColumnOrder, formatGridCell, mergeGridCells, setHiddenRows, updateGridCell } from '../../api/strategyApi';
 import { toastSuccess } from '../../utils/dialog';
+import { excelUrl } from '../../utils/excelLinks';
+import { logActivity } from '../../api/auditApi';
 import { getErrorMessage } from '../../api/axios';
 import Loader from '../../components/common/Loader';
 import ErrorMessage from '../../components/common/ErrorMessage';
@@ -166,6 +168,21 @@ function SheetView({ workbookId, sheet, workbook, gridState, sheets, onSheetChan
     }
   }
 
+  // Saves the user's own column order (dragging column letters); the Excel file isn't changed
+  async function saveColumnOrder({ columns }) {
+    try {
+      return await setColumnOrder({ workbook: workbookId, sheet: grid.sheet, columns });
+    } catch (err) {
+      throw toGridError(err);
+    }
+  }
+
+  // Link to the file in Excel for the web at a cell (to move columns there, keeping all formatting)
+  const excelLinkFor = workbook?.docUrl ? (cell) => {
+    logActivity('excel.open', `${grid.sheet}!${cell}`);
+    return excelUrl(workbook.docUrl, { sheet: grid.sheet, cell });
+  } : undefined;
+
   async function hideRows({ keys, hidden, all }) {
     try {
       return await setHiddenRows({ workbook: workbookId, sheet: grid.sheet, keys, hidden, all });
@@ -208,6 +225,8 @@ function SheetView({ workbookId, sheet, workbook, gridState, sheets, onSheetChan
             onMergeCells={mergeCells}
             onHideRows={hideRows}
             onPasteCells={pasteCells}
+            onColumnOrder={saveColumnOrder}
+            excelLinkFor={excelLinkFor}
             onColumns={grid.canInsertColumns ? changeColumns : undefined}
             sheets={sheets}
             onSheetChange={onSheetChange}

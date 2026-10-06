@@ -157,7 +157,9 @@ function parseClipboard(text) {
 }
 const clipboardCell = (v) => (/[\t\n\r"]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
 
-export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells, onHideRows, onColumns, onPasteCells, sheets = [], onSheetChange }) {
+export default function SheetGrid({
+  grid, onSaveCell, onFormatCell, onMergeCells, onHideRows, onColumns, onPasteCells, onColumnOrder, excelLinkFor, sheets = [], onSheetChange,
+}) {
   const format = grid.format;
   const [zoomPct, setZoomPct] = useState(() => readZoom(format?.zoom || 100));
   const zoom = zoomPct / 100;
@@ -170,6 +172,9 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
   const [columnBusy, setColumnBusy] = useState(''); // message on the loader shown while a column change or paste runs
   const [copied, setCopied] = useState(null); // { r1, r2, c1, c2 }: copied cells, shown with a dashed border
   const [cellMenu, setCellMenu] = useState(null); // { x, y } for the right-click menu on cells
+  // The user's own column order (column keys), or null for the sheet's order; changed by dragging letters
+  const [colOrder, setColOrder] = useState(grid.columnOrder || null);
+  const [drag, setDrag] = useState(null); // { from: grid column, to: grid column, side: 'left' | 'right' }
   // Local copy of the workbook's style table; formatting done here adds styles to it
   const [styles, setStyles] = useState(format?.styles || []);
   const [sel, setSel] = useState({ r: 0, c: 0 });
@@ -208,6 +213,8 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
   useEffect(() => {
     setRows(grid.rows);
     setHiddenKeys(new Set(grid.hiddenKeys || []));
+    setColOrder(grid.columnOrder || null);
+    setCopied(null);
     setRowMenu(null);
     setHistory({ undo: [], redo: [] });
     setStyles(grid.format?.styles || []);
@@ -222,11 +229,31 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
     try { localStorage.setItem(ZOOM_KEY, String(zoomPct)); } catch { /* storage unavailable */ }
   }, [zoomPct]);
 
-  // Columns hidden in the workbook stay hidden here
-  const cols = useMemo(
-    () => grid.headers.map((h, i) => ({ ...h, index: i })).filter((h) => !format?.columns[h.index]?.hidden),
-    [grid.headers, format]
-  );
+  // Columns hidden in the workbook stay hidden here. Each column has a key (its header text, numbered
+  // when headers repeat) so a personal order survives columns being inserted or deleted in Excel.
+  const sheetCols = useMemo(() => {
+    const seen = new Map();
+    return grid.headers.map((h, i) => {
+      const base = h.header || h.label || `#${h.letter}`;
+      const n = (seen.get(base) || 0) + 1;
+      seen.set(base, n);
+      return { ...h, index: i, key: n > 1 ? `${base}#${n}` : base };
+    }).filter((h) => !format?.columns[h.index]?.hidden);
+  }, [grid.headers, format]);
+  // In the user's order: saved keys first; a column not in the saved order (e.g. inserted since)
+  // goes right after the column to its left in the sheet
+  const cols = useMemo(() => {
+    if (!colOrder?.length) return sheetCols;
+    const byKey = new Map(sheetCols.map((h) => [h.key, h]));
+    const out = colOrder.map((k) => byKey.get(k)).filter(Boolean);
+    sheetCols.forEach((h, i) => {
+      if (out.includes(h)) return;
+      const left = i > 0 ? out.indexOf(sheetCols[i - 1]) : -1;
+      out.splice(left + 1, 0, h);
+    });
+    return out;
+  }, [sheetCols, colOrder]);
+  const customOrder = cols.some((h, i) => h !== sheetCols[i]);
   const style = (index) => (index === null || index === undefined ? null : styles[index]);
   const widthOf = (i) => colPx(format?.columns[i]?.width ?? format?.defaultColWidth) * zoom;
   const rowHeightOf = (row) => ptPx(row.height || format?.defaultRowHeight || DEFAULT_HEIGHT_PT) * zoom;
@@ -238,13 +265,19 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
     const cover = new Map(); // "r-c" -> area, for every cell inside an area
     rows.forEach((row, r) => {
       for (const m of row.merges || []) {
-        const inside = cols.map((h, c) => ({ h, c })).filter(({ h }) => h.index >= m.col && h.index < m.col + m.span);
+        const inside = cols.map((h, c) => ({ h, c })).filter(({ h }) => h.index >= m.col && h.index < m.col + m.span).map((x) => x.c).sort((a, b) => a - b);
         if (!inside.length) continue;
         let r1 = r;
         while (r1 + 1 < rows.length && rows[r1 + 1].row === rows[r1].row + 1 && rows[r1 + 1].row < row.row + (m.rows || 1)) r1++;
-        const area = { r0: r, c0: inside[0].c, r1, c1: inside[inside.length - 1].c };
-        for (let rr = area.r0; rr <= area.r1; rr++) {
-          for (let cc = area.c0; cc <= area.c1; cc++) cover.set(`${rr}-${cc}`, area);
+        // With a personal column order the area's columns may no longer sit side by side: each run of
+        // adjacent columns is drawn as its own area
+        const runs = [];
+        inside.forEach((cc) => { if (runs.length && cc === runs.at(-1).at(-1) + 1) runs.at(-1).push(cc); else runs.push([cc]); });
+        for (const run of runs) {
+          const area = { r0: r, c0: run[0], r1, c1: run.at(-1) };
+          for (let rr = area.r0; rr <= area.r1; rr++) {
+            for (let cc = area.c0; cc <= area.c1; cc++) cover.set(`${rr}-${cc}`, area);
+          }
         }
       }
     });
@@ -574,6 +607,48 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
     if (ok) await runColumns({ action: 'update' }, `Adding the ${today} update column…`);
   }
 
+  // ---- Personal column order: drag a column letter onto another ----
+  async function saveColumnOrder(next, message) {
+    const previous = colOrder;
+    setColOrder(next);
+    setStatus(message);
+    try {
+      const saved = await onColumnOrder({ columns: next });
+      setColOrder(saved);
+    } catch (err) {
+      setColOrder(previous);
+      setStatus(`Couldn't save the column order: ${err.message}`, true);
+    }
+  }
+
+  function dropColumn() {
+    const d = drag;
+    setDrag(null);
+    if (!d || d.to === null || d.from === d.to) return;
+    const keys = cols.map((h) => h.key);
+    const [moved] = keys.splice(d.from, 1);
+    let at = d.to + (d.side === 'right' ? 1 : 0);
+    if (d.from < at) at -= 1;
+    keys.splice(at, 0, moved);
+    if (keys.every((k, i) => k === cols[i].key)) return;
+    const same = keys.every((k, i) => k === sheetCols[i]?.key) && keys.length === sheetCols.length;
+    setAnchor(null);
+    setSel((s) => ({ r: s.r, c: at }));
+    saveColumnOrder(same ? null : keys, `Moved column ${cols[d.from].letter} in your view only (the Excel file isn't changed).`);
+  }
+
+  function resetColumnOrder() {
+    setColMenu(null);
+    saveColumnOrder(null, 'Columns are back in the sheet’s order.');
+  }
+
+  function openInExcel(c) {
+    setColMenu(null);
+    const h = cols[c];
+    const href = excelLinkFor?.(`${h.letter}${current?.row || 1}`);
+    if (href) window.open(href, 'mcu-excel', 'noopener');
+  }
+
   // Renames a column (admins): double-click its header, or the column menu
   async function renameColumn(c) {
     const h = cols[c];
@@ -814,6 +889,9 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
   const mergeState = (() => {
     const busy = !!saving || !!editing;
     if (!onMergeCells || !current || !currentCol) return { available: false };
+    if (customOrder) {
+      return { available: true, busy, canMerge: false, canUnmerge: false, problem: 'Merging uses the sheet’s real column order. Right-click a column letter → Reset column order first.' };
+    }
     if (selectedMerge) {
       return { available: true, busy, canMerge: false, canUnmerge: selectedFormattable, problem: selectedFormattable ? null : `${address} can't be changed by you.` };
     }
@@ -1024,6 +1102,12 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
           {grid.canRenameColumns && (
             <button type="button" role="menuitem" disabled={!!saving} onClick={() => renameColumn(colMenu.c)}>Rename header</button>
           )}
+          {excelLinkFor && (
+            <button type="button" role="menuitem" onClick={() => openInExcel(colMenu.c)}>Open in Excel at column {cols[colMenu.c]?.letter}</button>
+          )}
+          {customOrder && onColumnOrder && (
+            <button type="button" role="menuitem" onClick={resetColumnOrder}>Reset column order</button>
+          )}
           {grid.canDeleteColumns && (
             <button type="button" role="menuitem" className="xl-context__danger" disabled={!!saving} onClick={deleteColumn}>
               Delete column {cols[colMenu.c]?.letter}
@@ -1100,8 +1184,24 @@ export default function SheetGrid({ grid, onSaveCell, onFormatCell, onMergeCells
               {cols.map((h, c) => (
                 <th
                   key={h.letter}
-                  className={selCols.has(c) ? 'xl-letter xl-letter--sel' : 'xl-letter'}
-                  title={`Select column ${h.letter} (Shift+click to select several columns${onColumns ? ', right-click to insert columns' : ''})`}
+                  className={[
+                    'xl-letter',
+                    selCols.has(c) && 'xl-letter--sel',
+                    drag && drag.from === c && 'xl-letter--dragging',
+                    drag && drag.to === c && drag.from !== c && `xl-letter--drop-${drag.side}`,
+                  ].filter(Boolean).join(' ')}
+                  draggable={!!onColumnOrder && !editing}
+                  onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', h.letter); setDrag({ from: c, to: null, side: 'left' }); }}
+                  onDragOver={(e) => {
+                    if (!drag) return;
+                    e.preventDefault();
+                    const box = e.currentTarget.getBoundingClientRect();
+                    const side = e.clientX < box.left + box.width / 2 ? 'left' : 'right';
+                    if (drag.to !== c || drag.side !== side) setDrag((d) => ({ ...d, to: c, side }));
+                  }}
+                  onDrop={(e) => { e.preventDefault(); dropColumn(); }}
+                  onDragEnd={() => setDrag(null)}
+                  title={`Select column ${h.letter} (Shift+click to select several columns${onColumnOrder ? ', drag to move it in your view' : ''}${onColumns ? ', right-click for more' : ''})`}
                   onMouseDown={(e) => { if (e.button === 0) selectColumns(c, e.shiftKey); }}
                   onContextMenu={(e) => openColMenu(e, c)}
                 >

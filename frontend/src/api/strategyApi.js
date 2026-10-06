@@ -68,6 +68,13 @@ export async function changeGridColumns({ workbook, sheet, action, column, side,
   return data;
 }
 
+// Saves the user's own column order for a sheet (list of column keys; null = the sheet's order).
+// Only this user's view changes, not the Excel file. Returns the saved order.
+export async function setColumnOrder({ workbook, sheet, columns }) {
+  const { data } = await api.put('/strategy/grid/column-order', { workbook, sheet, columns });
+  return data.columnOrder;
+}
+
 // Hides (hidden: true) or unhides rows in the user's own view; `all` with hidden: false unhides
 // everything. Returns the sheet's hidden row keys. The Excel file isn't changed.
 export async function setHiddenRows({ workbook, sheet, keys = [], hidden, all = false }) {
