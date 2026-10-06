@@ -107,6 +107,14 @@ router.post('/grid/columns',
   validate,
   strategy.changeGridColumns
 );
+// Personal column order in the user's own view (null resets it)
+router.put('/grid/column-order',
+  body('sheet').isString().trim().isLength({ min: 1, max: 100 }),
+  body('columns').optional({ values: 'null' }).isArray({ max: 300 }),
+  body('columns.*').optional().isString().isLength({ max: 300 }),
+  validate,
+  strategy.setColumnOrder
+);
 // Personal "hide rows" in the user's own view
 router.put('/grid/hidden-rows',
   body('sheet').isString().trim().isLength({ min: 1, max: 100 }),

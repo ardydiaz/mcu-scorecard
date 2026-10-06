@@ -8,3 +8,4 @@ require('./AccessRule');
 require('./HiddenRow');
 require('./Workbook');
 require('./UserPhoto');
+require('./ColumnOrder');

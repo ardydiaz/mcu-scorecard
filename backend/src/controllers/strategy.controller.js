@@ -8,6 +8,7 @@ const { audit } = require('../services/audit.service');
 const hiddenRowService = require('../services/hiddenRow.service');
 const scoreboardService = require('../services/scoreboard.service');
 const columnService = require('../services/column.service');
+const columnOrderService = require('../services/columnOrder.service');
 
 // The scorecard file this request works on (?workbook= or body.workbook; default file when absent)
 const workbookFor = (req) => workbookService.resolveWorkbook(req.query.workbook ?? req.body?.workbook, req.user);
@@ -53,6 +54,8 @@ async function getGrid(req, res) {
   if (data.supported) {
     // Rows this user chose to hide in their own view (personal setting)
     data.hiddenKeys = await hiddenRowService.getHiddenKeys(user.id, wb.id, data.sheet);
+    // The user's own column order (dragging column letters), or null for the sheet's order
+    data.columnOrder = await columnOrderService.getColumnOrder(user.id, wb.id, data.sheet);
     // Everyone may insert columns; deleting one is for admins (see column.service)
     data.canInsertColumns = true;
     data.canDeleteColumns = user.role === 'admin';
@@ -60,6 +63,14 @@ async function getGrid(req, res) {
     await auditView(req, 'Excel grid', wb, data, { rows: data.rows.length });
   }
   res.json(data);
+}
+
+// Saves the user's own column order for a sheet (null = back to the sheet's order); the Excel file isn't changed
+async function setColumnOrder(req, res) {
+  const wb = await workbookFor(req);
+  const { sheet, columns } = req.body;
+  const saved = await columnOrderService.setColumnOrder(req.user.id, wb.id, sheet, columns || null);
+  res.json({ workbookId: wb.id, sheet, columnOrder: saved });
 }
 
 // Hides / unhides rows in the user's own view of a sheet (doesn't change the Excel file)
@@ -170,5 +181,5 @@ async function getMap(req, res) {
 }
 
 module.exports = {
-  listWorkbooks, listSheets, getWorkbook, getScoreboard, getGrid, setHiddenRows, updateGridCell, formatGridCell, mergeGridCells, changeGridColumns, pasteGridCells, getMap,
+  listWorkbooks, listSheets, getWorkbook, getScoreboard, getGrid, setHiddenRows, setColumnOrder, updateGridCell, formatGridCell, mergeGridCells, changeGridColumns, pasteGridCells, getMap,
 };
