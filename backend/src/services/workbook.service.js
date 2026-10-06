@@ -6,6 +6,8 @@ const HiddenRow = require('../models/HiddenRow');
 const { getAppGraphClient } = require('./graph.service');
 const { explainGraphError } = require('./excel.service');
 const logger = require('../utils/logger');
+const { sequelize } = require('../config/database');
+const { audit } = require('./audit.service');
 
 /**
  * Excel files in the SharePoint scorecard folder (the folder that holds EXCEL_ITEM_ID, or
@@ -85,7 +87,36 @@ async function runSync() {
       logger.warn(`Excel file "${w.name}" is no longer in the scorecard folder`);
     }
   }
+  await ensureDefault('the default file is no longer in the scorecard folder');
   lastSync = Date.now();
+}
+
+/**
+ * Keeps a default file: when the default was deleted or moved out of the folder (or unpublished /
+ * hidden), the most recently modified published file becomes the default, so nobody has to fix it
+ * by hand. Recorded in the audit log as a system change. Returns the new default's name, or null.
+ */
+async function ensureDefault(reason) {
+  const all = await Workbook.findAll();
+  const current = all.find((w) => w.isDefault);
+  if (current && !current.missing && current.status === 'published') return null;
+  const next = all
+    .filter((w) => !w.missing && w.status === 'published')
+    .sort((a, b) => new Date(b.lastModifiedAt || 0) - new Date(a.lastModifiedAt || 0))[0];
+  if (!next && !current) return null;
+  await Workbook.update({ isDefault: false }, { where: { isDefault: true } });
+  if (!next) {
+    logger.warn(`"${current.name}" is no longer the default file and no other file is published`);
+    return null;
+  }
+  await next.update({ isDefault: true });
+  logger.info(`Default file moved to "${next.name}" (${reason})`);
+  await audit(null, 'workbook.default', {
+    target: next.name,
+    actor: { id: null, email: 'System' },
+    details: { automatic: true, reason, previous: current?.name || null },
+  });
+  return next.name;
 }
 
 // Re-reads the folder if the last check is older than SYNC_INTERVAL_MS (or `force`)
@@ -118,12 +149,18 @@ async function listForUser(user) {
   }));
 }
 
-// Every file for the admin Workbooks page, including missing ones
+// Every file for the admin Workbooks page, including missing ones (with how many access rules and
+// personal hidden rows are tied to each, shown before removing a file that is no longer in the folder)
 async function listAll({ refresh = false } = {}) {
   if (refresh) await syncWorkbooks({ force: true });
   else await syncQuietly();
+  const count = async (Model) => new Map((await Model.findAll({
+    attributes: ['workbookId', [sequelize.fn('COUNT', sequelize.col('id')), 'n']], group: ['workbookId'], raw: true,
+  })).map((r) => [r.workbookId, Number(r.n)]));
+  const [rules, hidden] = await Promise.all([count(AccessRule), count(HiddenRow)]);
   const rows = await Workbook.findAll({ order: [['missing', 'ASC'], ['isDefault', 'DESC'], ['lastModifiedAt', 'DESC']] });
-  return rows.map((w) => w.toJSON()); // not raw: booleans come back as true/false, not 1/0
+  // not raw: booleans come back as true/false, not 1/0
+  return rows.map((w) => ({ ...w.toJSON(), ruleCount: rules.get(w.id) || 0, hiddenRowCount: hidden.get(w.id) || 0 }));
 }
 
 /**
@@ -161,7 +198,28 @@ async function setStatus(id, status) {
   if (!row) throw httpError(404, 'That scorecard file was not found.');
   const before = row.toJSON();
   await row.update({ status, isDefault: status === 'published' ? row.isDefault : false });
-  return { workbook: row.toJSON(), before };
+  // Unpublishing or hiding the default file hands "default" to the newest published file
+  const newDefault = before.isDefault && status !== 'published' ? await ensureDefault(`"${row.name}" was ${status === 'hidden' ? 'hidden' : 'unpublished'}`) : null;
+  return { workbook: row.toJSON(), before, newDefault };
+}
+
+/**
+ * Removes a file that is no longer in the scorecard folder from the system, with the access rules
+ * made for that file and users' hidden rows in it. (Rules for "All files" are kept.) If the file
+ * comes back to the folder later, it is found again as a new Draft.
+ */
+async function removeMissing(id) {
+  const row = await Workbook.findByPk(Number(id));
+  if (!row) throw httpError(404, 'That scorecard file was not found.');
+  if (!row.missing) throw httpError(409, `"${row.name}" is still in the scorecard folder. Hide it instead; only files no longer in the folder can be removed.`);
+  const removed = await sequelize.transaction(async (transaction) => {
+    const rules = await AccessRule.destroy({ where: { workbookId: row.id }, transaction });
+    const hiddenRows = await HiddenRow.destroy({ where: { workbookId: row.id }, transaction });
+    await row.destroy({ transaction });
+    return { rules, hiddenRows };
+  });
+  logger.info(`Removed "${row.name}" from the system (${removed.rules} access rule(s), ${removed.hiddenRows} hidden row(s))`);
+  return { name: row.name, ...removed };
 }
 
 // Makes a published file the one that opens first
@@ -203,5 +261,6 @@ module.exports = {
   getWorkbook,
   setStatus,
   setDefault,
+  removeMissing,
   initWorkbooks,
 };

@@ -134,7 +134,8 @@ function academicYear(label) {
   return m ? `20${m[1]}-20${m[2]}` : label || null;
 }
 
-const tierLetter = (tier) => (/class\s*([sab])\b/i.exec(tier || '')?.[1] || /^\s*([sab])\s*$/i.exec(tier || '')?.[1] || '').toUpperCase();
+// "Class S", "Class C", "B" -> "S" / "C" / "B" (any class letter the sheet uses); '' when empty or unknown
+const tierLetter = (tier) => (/class\s*([a-z])\b/i.exec(tier || '')?.[1] || /^\s*([a-z])\s*$/i.exec(tier || '')?.[1] || '').toUpperCase();
 const stripProject = (name) => String(name || '').replace(/^project\s+/i, '').trim();
 const isCostKpi = (kpi) => /(expense|cost)/i.test(kpi || '') && /reduc|sav/i.test(kpi || '');
 
@@ -156,7 +157,8 @@ async function getScoreboardForUser(wb, user, { sheet, department, refresh } = {
         qp: kpi.qualityPolicy || null,
         kpi: kpi.name || null,
         target: kpi.targets.map((t) => t.value).join('\n') || pr.target || null,
-        tier: tierLetter(pr.tier || kpi.tier) || '–',
+        // The project row's own Tier cell, as in Excel (an empty cell is "No tier", not the KPI's tier)
+        tier: tierLetter(pr.tier) || '–',
         name: stripProject(pr.name),
         lead: pr.lead.join('/'),
         support: pr.support.join('/') || null,

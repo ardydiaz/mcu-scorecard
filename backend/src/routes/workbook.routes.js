@@ -18,5 +18,7 @@ router.put('/:id/status', idParam, body('status').isIn(STATUSES), validate, work
 router.put('/:id/default', idParam, validate, workbooks.setDefault);
 // Writes Row IDs into every scorecard sheet of the file (also done automatically on Publish)
 router.post('/:id/row-ids', idParam, validate, workbooks.assignRowIds);
+// Only for files no longer in the scorecard folder (checked in workbook.service)
+router.delete('/:id', idParam, validate, workbooks.remove);
 
 module.exports = router;

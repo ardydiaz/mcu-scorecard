@@ -35,6 +35,7 @@ const ACTIONS = {
   'workbook.status': 'Changed file status',
   'workbook.default': 'Set default file',
   'workbook.refresh': 'Checked scorecard folder',
+  'workbook.remove': 'Removed file from the list',
 };
 
 // The only actions the browser may report itself (everything else is recorded by the server)

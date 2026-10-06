@@ -25,7 +25,7 @@ async function assignAndAudit(req, wb) {
 // Publish / back to draft / hide. Publishing also gives the file's scorecard sheets Row IDs, so
 // every published file supports rules for specific rows (the publish stands even if that fails).
 async function setStatus(req, res) {
-  const { workbook, before } = await workbookService.setStatus(Number(req.params.id), req.body.status);
+  const { workbook, before, newDefault } = await workbookService.setStatus(Number(req.params.id), req.body.status);
   await audit(req, 'workbook.status', {
     target: workbook.name,
     details: { from: STATUS_LABELS[before.status], to: STATUS_LABELS[workbook.status], ...(before.isDefault && !workbook.isDefault && { wasDefault: true }) },
@@ -41,7 +41,7 @@ async function setStatus(req, res) {
       }
     }
   }
-  res.json({ ...workbook, ...(rowIds && { rowIds }) });
+  res.json({ ...workbook, ...(rowIds && { rowIds }), ...(newDefault && { newDefault }) });
 }
 
 // "Assign Row IDs" for a whole file (e.g. one published before this was automatic)
@@ -56,4 +56,11 @@ async function setDefault(req, res) {
   res.json(workbook);
 }
 
-module.exports = { list, setStatus, assignRowIds, setDefault };
+// Removes a file that is no longer in the folder, with its own access rules and hidden rows
+async function remove(req, res) {
+  const result = await workbookService.removeMissing(Number(req.params.id));
+  await audit(req, 'workbook.remove', { target: result.name, details: { accessRulesRemoved: result.rules, hiddenRowsRemoved: result.hiddenRows } });
+  res.json(result);
+}
+
+module.exports = { list, setStatus, assignRowIds, setDefault, remove };
