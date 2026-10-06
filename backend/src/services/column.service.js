@@ -1,4 +1,4 @@
-const { getUsedRange, insertColumn, deleteColumn } = require('./excel.service');
+const { getUsedRange, insertColumn, deleteColumn, writeCell } = require('./excel.service');
 const { listVisibleSheets, mapColumns, columnLetter, oneLine, cellReader, invalidateScorecard } = require('./scorecard.service');
 const { analyzeSheet, letterToIndex } = require('./grid.service');
 const formatService = require('./format.service');
@@ -65,9 +65,11 @@ function cleanHeader(ctx, raw) {
   return /^[=+\-@]/.test(header) ? `'${header}` : header;
 }
 
-async function afterChange(wb, sheet) {
+// After a column change: the parsed sheet is stale, and the cached formatting moves along with the
+// columns (instead of reading the whole file again, which made the grid reload slow)
+async function afterChange(wb, sheet, letter, delta) {
   invalidateScorecard(wb, sheet);
-  formatService.forget(wb);
+  formatService.shiftColumns(wb, sheet, letterToIndex(letter), delta);
 }
 
 /**
@@ -81,7 +83,7 @@ async function insertColumnForUser(wb, user, { sheet, column, side = 'right', he
   const at = letterToIndex(column) + (side === 'left' ? 0 : 1);
   const letter = columnLetter(at);
   await insertColumn(wb, sheet, letter, `${letter}${ctx.headerRowNumber}`, text);
-  await afterChange(wb, sheet);
+  await afterChange(wb, sheet, letter, 1);
   logger.info(`${user.email} inserted column ${letter} "${text}" in ${wb.name} / ${sheet}`);
   return {
     column: letter,
@@ -109,7 +111,7 @@ async function addUpdateColumnForUser(wb, user, { sheet }) {
   }
   const letter = columnLetter(ctx.layout.firstCol + rel);
   await insertColumn(wb, sheet, letter, `${letter}${ctx.headerRowNumber}`, serial, { numberFormat: 'd-mmm-yy' });
-  await afterChange(wb, sheet);
+  await afterChange(wb, sheet, letter, 1);
   const label = new Date((serial - 25569) * 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'UTC' });
   logger.info(`${user.email} added update column ${letter} (${label}) in ${wb.name} / ${sheet}`);
   return {
@@ -143,7 +145,7 @@ async function deleteColumnForUser(wb, user, { sheet, column, expectedHeader, co
     });
   }
   await deleteColumn(wb, sheet, column);
-  await afterChange(wb, sheet);
+  await afterChange(wb, sheet, column, -1);
   logger.info(`${user.email} deleted column ${column} "${name}" (${filled} filled) in ${wb.name} / ${sheet}`);
   return {
     column,
@@ -151,4 +153,62 @@ async function deleteColumnForUser(wb, user, { sheet, column, expectedHeader, co
   };
 }
 
-module.exports = { insertColumnForUser, addUpdateColumnForUser, deleteColumnForUser };
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+// A header typed as a date ("21-Sep-26", "Sep 21, 2026", "21 September 2026", "2026-09-21") -> Excel
+// date serial, so update columns stay real dates the dashboard reads as weeks; null for other text
+function headerDateSerial(text) {
+  const s = String(text).trim();
+  const mon = (w) => MONTHS.indexOf(String(w).slice(0, 3).toLowerCase());
+  const year = (y) => (y.length === 2 ? 2000 + Number(y) : Number(y));
+  let y; let m; let d;
+  let x = /^(\d{1,2})[-\s]([A-Za-z]{3,9})[-\s](\d{2}|\d{4})$/.exec(s);
+  if (x && mon(x[2]) !== -1) [d, m, y] = [Number(x[1]), mon(x[2]), year(x[3])];
+  x = !y && /^([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4})$/.exec(s);
+  if (x && mon(x[1]) !== -1) [d, m, y] = [Number(x[2]), mon(x[1]), Number(x[3])];
+  x = !y && /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (x) [y, m, d] = [Number(x[1]), Number(x[2]) - 1, Number(x[3])];
+  if (!y || d < 1 || d > 31) return null;
+  return Date.UTC(y, m, d) / 86400000 + 25569;
+}
+
+/**
+ * Renames a column: writes a new header (admins only). Key scorecard columns keep their names, since
+ * the system finds them by name. A date ("21-Sep-26") is saved as an Excel date shown as d-mmm-yy.
+ */
+async function renameColumnForUser(wb, user, { sheet, column, header, expectedHeader }) {
+  if (!isAdmin(user)) throw httpError(403, 'Only admins can rename columns, because the header is shared by every department.');
+  const ctx = await load(wb, sheet);
+  checkExpected(ctx, column, expectedHeader);
+  const absIndex = letterToIndex(column);
+  const rel = absIndex - ctx.layout.firstCol;
+  const key = Object.entries(ctx.layout.columns).find(([k, i]) => i === rel && PROTECTED.includes(k))?.[0];
+  if (key) throw httpError(400, `"${PROTECTED_LABELS[key]}" is a key column of the scorecard (the system finds it by this name), so it can't be renamed.`);
+
+  const before = ctx.header(absIndex);
+  const typed = String(header || '').replace(/\s+/g, ' ').trim();
+  if (typed === before) throw httpError(400, 'The header already has that name.');
+  const serial = headerDateSerial(typed);
+  let value;
+  if (serial) {
+    if (ctx.headerValues.some((v, i) => i !== rel && typeof v === 'number' && Math.floor(v) === serial)) {
+      throw httpError(409, 'There is already a column for that date.');
+    }
+    value = serial;
+  } else {
+    // Duplicate check against the other columns only
+    const others = { ...ctx, headerText: ctx.headerText.map((t, i) => (i === rel ? '' : t)), headerValues: ctx.headerValues.map((v, i) => (i === rel ? '' : v)) };
+    value = cleanHeader(others, typed);
+  }
+  await writeCell(wb, sheet, `${column}${ctx.headerRowNumber}`, value, serial ? { numberFormat: 'd-mmm-yy' } : {});
+  invalidateScorecard(wb, sheet);
+  const after = serial ? new Date((serial - 25569) * 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'UTC' }) : String(value).replace(/^'/, '');
+  logger.info(`${user.email} renamed column ${column} "${before}" -> "${after}" in ${wb.name} / ${sheet}`);
+  return {
+    column,
+    header: after,
+    change: { target: `${sheet}!${column}:${column}`, details: { workbook: wb.name, from: before, to: after } },
+  };
+}
+
+module.exports = { insertColumnForUser, addUpdateColumnForUser, deleteColumnForUser, renameColumnForUser };

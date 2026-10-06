@@ -56,6 +56,7 @@ async function getGrid(req, res) {
     // Everyone may insert columns; deleting one is for admins (see column.service)
     data.canInsertColumns = true;
     data.canDeleteColumns = user.role === 'admin';
+    data.canRenameColumns = user.role === 'admin';
     await auditView(req, 'Excel grid', wb, data, { rows: data.rows.length });
   }
   res.json(data);
@@ -114,6 +115,16 @@ async function formatGridCell(req, res) {
 }
 
 // Merges (or unmerges) a range of the Excel file; rules in grid.service
+// Pastes copied values into the Excel file (Ctrl+V in the grid); rules in grid.service
+async function pasteGridCells(req, res) {
+  const wb = await workbookFor(req);
+  const user = await userService.getUserForAccess(req.user.id);
+  const { sheet, targets } = req.body;
+  const { change, ...result } = await withDeniedAudit(req, wb, 'paste', () => gridService.pasteForUser(wb, user, { sheet, targets }));
+  await audit(req, 'sheet.paste', change);
+  res.json(result);
+}
+
 // Inserts a column, adds today's update column, or (admins) deletes a column; rules in column.service
 async function changeGridColumns(req, res) {
   const wb = await workbookFor(req);
@@ -123,9 +134,10 @@ async function changeGridColumns(req, res) {
     insert: () => columnService.insertColumnForUser(wb, user, { sheet, column, side, header, expectedHeader }),
     update: () => columnService.addUpdateColumnForUser(wb, user, { sheet }),
     delete: () => columnService.deleteColumnForUser(wb, user, { sheet, column, expectedHeader, confirm }),
+    rename: () => columnService.renameColumnForUser(wb, user, { sheet, column, header, expectedHeader }),
   }[action];
   const { change, ...result } = await withDeniedAudit(req, wb, `column ${action}`, run);
-  await audit(req, action === 'delete' ? 'sheet.column_delete' : 'sheet.column_insert', change);
+  await audit(req, { delete: 'sheet.column_delete', rename: 'sheet.column_rename' }[action] || 'sheet.column_insert', change);
   res.json(result);
 }
 
@@ -158,5 +170,5 @@ async function getMap(req, res) {
 }
 
 module.exports = {
-  listWorkbooks, listSheets, getWorkbook, getScoreboard, getGrid, setHiddenRows, updateGridCell, formatGridCell, mergeGridCells, changeGridColumns, getMap,
+  listWorkbooks, listSheets, getWorkbook, getScoreboard, getGrid, setHiddenRows, updateGridCell, formatGridCell, mergeGridCells, changeGridColumns, pasteGridCells, getMap,
 };

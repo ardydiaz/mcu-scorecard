@@ -82,13 +82,26 @@ router.post('/grid/merge',
   validate,
   strategy.mergeGridCells
 );
+// Paste copied values (Ctrl+V); permission and conflict checks in grid.service
+router.post('/grid/paste',
+  body('sheet').isString().trim().isLength({ min: 1, max: 100 }),
+  body('targets').isArray({ min: 1, max: 1000 }),
+  body('targets.*.row').isInt({ min: 2 }).toInt(),
+  body(['targets.*.identity.lead', 'targets.*.identity.name']).optional().isString(),
+  body('targets.*.cells').isArray({ min: 1, max: 200 }),
+  body('targets.*.cells.*.column').isString().matches(/^[A-Z]{1,3}$/),
+  body('targets.*.cells.*.value').isString(),
+  body('targets.*.cells.*.previous').optional().isString(),
+  validate,
+  strategy.pasteGridCells
+);
 // Insert a column / add today's update column (everyone), delete a column (admins; checked in column.service)
 router.post('/grid/columns',
   body('sheet').isString().trim().isLength({ min: 1, max: 100 }),
-  body('action').isIn(['insert', 'update', 'delete']),
-  body('column').if(body('action').isIn(['insert', 'delete'])).isString().matches(/^[A-Z]{1,3}$/),
+  body('action').isIn(['insert', 'update', 'delete', 'rename']),
+  body('column').if(body('action').isIn(['insert', 'delete', 'rename'])).isString().matches(/^[A-Z]{1,3}$/),
   body('side').optional().isIn(['left', 'right']),
-  body('header').if(body('action').equals('insert')).isString().isLength({ min: 1, max: 100 }),
+  body('header').if(body('action').isIn(['insert', 'rename'])).isString().trim().isLength({ min: 1, max: 100 }),
   body('expectedHeader').optional().isString().isLength({ max: 500 }),
   body('confirm').optional().isBoolean({ strict: true }),
   validate,

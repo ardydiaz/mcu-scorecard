@@ -1,4 +1,4 @@
-const { getUsedRange, writeCell, writeCellFormat, mergeRange } = require('./excel.service');
+const { getUsedRange, writeCell, writeCellFormat, mergeRange, writeRange, writeCellNumberFormat } = require('./excel.service');
 const {
   listVisibleSheets,
   findHeaderRow,
@@ -465,8 +465,127 @@ async function mergeCellsForUser(wb, user, {
   };
 }
 
+const MAX_PASTE_CELLS = 2000;
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+// "Aug-26" / "Aug 2026" (as copied from a date column) -> "2026-08"; null for anything else
+function monthText(value) {
+  const m = /^([A-Za-z]{3})[-\s'](\d{2}|\d{4})$/.exec(String(value).trim());
+  const month = m ? MONTHS.indexOf(m[1].toLowerCase()) : -1;
+  if (month === -1) return null;
+  return `${m[2].length === 2 ? 2000 + Number(m[2]) : m[2]}-${String(month + 1).padStart(2, '0')}`;
+}
+
+/**
+ * Pastes values into the grid, like Ctrl+V in Excel (values only, formatting unchanged).
+ * `targets`: [{ row, identity, cells: [{ column, value, previous }] }] for the rows shown to the user.
+ * All or nothing: if any cell can't be changed (a row the user may not edit, a formula cell, a row
+ * that moved, or a cell someone changed meanwhile) nothing is written. Cells are written in as few
+ * rectangular blocks as possible; rows the user doesn't see (filtered out) are never touched.
+ * Returns { cells: [{ row, column, text }], identities: { [row]: identity }, change }.
+ */
+async function pasteForUser(wb, user, { sheet, targets }) {
+  await requireSheet(wb, sheet);
+  const total = targets.reduce((n, t) => n + t.cells.length, 0);
+  if (!total) throw httpError(400, 'There is nothing to paste.');
+  if (total > MAX_PASTE_CELLS) throw httpError(400, `You can paste at most ${MAX_PASTE_CELLS} cells at once (this paste has ${total}).`);
+
+  const range = await getUsedRange(wb, sheet, { refresh: true });
+  const layout = analyzeSheet(range);
+  if (!layout) throw httpError(422, `"${sheet}" can't be edited here.`);
+  const access = accessFor(user);
+  const levels = hierarchyByRow(layout, range);
+
+  const denied = [];
+  const blocked = [];
+  const writes = [];
+  for (const t of targets) {
+    const r = t.row - layout.firstRow;
+    if (r <= layout.headerRow || r >= range.values.length) throw httpError(409, `Row ${t.row} is not in the sheet any more. Refresh and try again.`);
+    const cells = rowCells(layout, range, r);
+    if (!rowAccess(access, rowFacts(wb, sheet, layout, range, r, levels, cells)).edit) { denied.push(t.row); continue; }
+    const now = rowIdentity(layout, cells);
+    if (t.identity && (t.identity.lead !== now.lead || t.identity.name !== now.name)) {
+      throw httpError(409, `Row ${t.row} changed in Excel since you loaded it (rows may have been added or moved). Refresh and try again.`);
+    }
+    const formulas = formulaColumns(layout, range, r);
+    for (const { column, value, previous } of t.cells) {
+      const col = letterToIndex(column) - layout.firstCol;
+      if (col < 0 || col >= layout.headers.length) { blocked.push(`${column}${t.row} (outside the sheet)`); continue; }
+      if (formulas.includes(col)) { blocked.push(`${column}${t.row} (formula)`); continue; }
+      if (previous !== undefined && (previous || '') !== cells[col]) {
+        throw httpError(409, `Someone changed ${column}${t.row} in Excel meanwhile (it now says "${cells[col] || '(empty)'}"). Refresh and try again.`);
+      }
+      let text = String(value ?? '');
+      if (text.length > MAX_CELL_LENGTH) throw httpError(400, `${column}${t.row}: text is too long (max ${MAX_CELL_LENGTH} characters).`);
+      let write = text;
+      let isDate = false;
+      if (layout.dateColumns.includes(col) && (monthText(text) || /^\d{4}-\d{2}$/.test(text))) {
+        write = monthToExcelSerial(monthText(text) || text);
+        isDate = true;
+      } else if (/^[=+\-@]/.test(text) && Number.isNaN(Number(text))) {
+        write = `'${text}`; // stored as text so it is never run as an Excel formula
+      }
+      writes.push({ r, col, write, isDate, row: t.row, column, old: cells[col] });
+    }
+  }
+  if (denied.length) {
+    throw httpError(403, `Nothing was pasted: you can't edit row${denied.length === 1 ? '' : 's'} ${denied.slice(0, 8).join(', ')}${denied.length > 8 ? '…' : ''} (your department doesn't lead ${denied.length === 1 ? 'it' : 'them'}).`);
+  }
+  if (blocked.length) {
+    throw httpError(400, `Nothing was pasted: ${blocked.slice(0, 6).join(', ')}${blocked.length > 6 ? ` and ${blocked.length - 6} more` : ''} can't be changed here.`);
+  }
+
+  // Rectangular blocks: per row, runs of adjacent columns; consecutive rows with the same run are merged
+  const byRow = new Map();
+  for (const w of writes) byRow.set(w.r, [...(byRow.get(w.r) || []), w]);
+  const blocks = [];
+  for (const r of [...byRow.keys()].sort((a, b) => a - b)) {
+    const ws = byRow.get(r).sort((a, b) => a.col - b.col);
+    let run = [ws[0]];
+    const flush = () => {
+      const c1 = run[0].col; const c2 = run.at(-1).col;
+      const last = blocks.at(-1);
+      if (last && last.c1 === c1 && last.c2 === c2 && last.r2 === r - 1) { last.r2 = r; last.rows.push(run); } else blocks.push({ r1: r, r2: r, c1, c2, rows: [run] });
+    };
+    for (let i = 1; i < ws.length; i++) {
+      if (ws[i].col === run.at(-1).col + 1) run.push(ws[i]); else { flush(); run = [ws[i]]; }
+    }
+    flush();
+  }
+  const addr = (r, c) => `${columnLetter(layout.firstCol + c)}${layout.firstRow + r}`;
+  for (const b of blocks) {
+    await writeRange(wb, sheet, `${addr(b.r1, b.c1)}:${addr(b.r2, b.c2)}`, b.rows.map((run) => run.map((w) => w.write)));
+  }
+  // Pasted months show as "Aug-26", like dates entered in the grid
+  for (const w of writes.filter((x) => x.isDate)) await writeCellNumberFormat(wb, sheet, addr(w.r, w.col), 'mmm-yy');
+
+  invalidateScorecard(wb, sheet);
+  const after = await getUsedRange(wb, sheet, { refresh: true });
+  const textAt = (r, col) => cellReader(after.values[r], after.text[r])(col);
+  const identities = {};
+  for (const r of byRow.keys()) identities[layout.firstRow + r] = rowIdentity(layout, rowCells(layout, after, r));
+  const first = blocks[0]; const lastB = blocks.at(-1);
+  const area = `${addr(first.r1, Math.min(...blocks.map((b) => b.c1)))}:${addr(lastB.r2, Math.max(...blocks.map((b) => b.c2)))}`;
+  logger.info(`${user.email} pasted ${writes.length} cell(s) into ${wb.name} / ${sheet}!${area} (${blocks.length} block(s))`);
+  return {
+    cells: writes.map((w) => ({ row: w.row, column: w.column, text: textAt(w.r, w.col) })),
+    identities,
+    change: {
+      target: `${sheet}!${area}`,
+      details: {
+        workbook: wb.name,
+        cells: writes.length,
+        rows: byRow.size,
+        sample: writes.slice(0, 5).map((w) => ({ cell: `${w.column}${w.row}`, oldValue: w.old, newValue: String(w.write).replace(/^'/, '') })),
+      },
+    },
+  };
+}
+
 module.exports = {
   getGridForUser,
+  pasteForUser,
   updateCellForUser,
   formatCellForUser,
   mergeCellsForUser,

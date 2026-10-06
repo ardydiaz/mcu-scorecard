@@ -109,10 +109,40 @@ function warmUp(wb) {
   if (wb) refresh(wb).catch((err) => logger.warn(`Format warm-up failed: ${err.message}`));
 }
 
-// After columns were inserted or deleted every cached position is off, so the formatting is read
-// again from the file; the next grid load waits for it (a few seconds)
+// Drops the cached formatting of a workbook; the next grid load reads it again (a few seconds)
 function forget(wb) {
   cached.delete(wb.itemId);
 }
 
-module.exports = { getSheetFormat, getTabColor, updateCachedStyle, updateCachedMerge, warmUp, forget };
+/**
+ * After a column was inserted (delta 1) or deleted (delta -1) at `col` (0-based sheet column), moves
+ * the cached formatting along like Excel does, so the grid doesn't wait for the file to be read
+ * again: widths, cell styles and merged areas right of it shift, and an inserted column takes the
+ * formatting of the column on its left (as Excel's Insert does). The next periodic refresh reads the
+ * real formatting from the file anyway.
+ */
+function shiftColumns(wb, sheetName, col, delta) {
+  const sheet = sheetOf(wb, sheetName);
+  if (!sheet) return;
+  const shiftArray = (arr, copyLeft) => {
+    if (!Array.isArray(arr) || arr.length < col) return;
+    if (delta > 0) arr.splice(col, 0, copyLeft && col > 0 ? arr[col - 1] : undefined);
+    else arr.splice(col, 1);
+  };
+  shiftArray(sheet.columns, true);
+  for (const row of Object.keys(sheet.cells || {})) shiftArray(sheet.cells[row], true);
+  const c1 = col + 1; // merges are 1-based
+  sheet.merges = (sheet.merges || []).flatMap((m) => {
+    if (delta > 0) {
+      if (m.left >= c1) return [{ ...m, left: m.left + 1, right: m.right + 1 }];
+      if (m.right >= c1) return [{ ...m, right: m.right + 1 }]; // the new column is inside the merged area
+      return [m];
+    }
+    if (m.left === c1 && m.right === c1) return []; // the deleted column was the whole area
+    if (m.left > c1) return [{ ...m, left: m.left - 1, right: m.right - 1 }];
+    if (m.right >= c1) return [{ ...m, right: m.right - 1 }];
+    return [m];
+  });
+}
+
+module.exports = { getSheetFormat, getTabColor, updateCachedStyle, updateCachedMerge, warmUp, forget, shiftColumns };
