@@ -177,7 +177,12 @@ async function writeCell(wb, sheetName, address, value, { numberFormat } = {}) {
   const body = { values: [[value]] };
   if (numberFormat) body.numberFormat = [[numberFormat]];
   const result = await write(wb, sheetName, (api) => api(`${sheetPath(wb, sheetName)}/range(address='${address}')`).patch(body));
-  return result?.text?.[0]?.[0] ?? String(value);
+  // A cell whose format hides its text (";;;", e.g. a traffic light) displays "": use the stored value
+  // then, as when the sheet is read (cellReader), so the grid keeps the value and its color rule
+  const text = result?.text?.[0]?.[0];
+  if (text !== undefined && text !== null && text !== '') return text;
+  const stored = result?.values?.[0]?.[0];
+  return stored !== undefined && stored !== null && stored !== '' ? String(stored) : String(value);
 }
 
 const H_ALIGN = { general: 'General', left: 'Left', center: 'Center', right: 'Right' };

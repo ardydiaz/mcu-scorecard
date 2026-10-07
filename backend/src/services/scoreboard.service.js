@@ -14,7 +14,8 @@ const STAGES = ['Complete', 'Rolling out', 'Testing', 'In build', 'Review', 'Sou
 // "On Track", "Behind", "At Risk", "Off Track"; "" when the Traffic Light cell is empty
 function normalizeLight(value) {
   const v = String(value || '').trim().toLowerCase();
-  if (!v) return '';
+  // "Clear" (in the Traffic Light dropdown) means no status is reported
+  if (!v || v === 'clear' || v === 'none' || v === 'n/a') return '';
   if (/on[\s-]?track|green|good/.test(v)) return 'On Track';
   if (/behind|amber|yellow/.test(v)) return 'Behind';
   if (/risk/.test(v)) return 'At Risk';

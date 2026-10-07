@@ -84,7 +84,122 @@ function parseArea(area) {
   return { top: Number(m[2]), left: letterIndex(m[1]), bottom: Number(m[4]), right: letterIndex(m[3]) };
 }
 
-function describeSheet(ws, theme) {
+// "M2:N334" / "B5" -> area; several areas may be separated by spaces ("W12:W13 W35:W38")
+function parseAreas(ref) {
+  return String(ref || '').split(/\s+/).filter(Boolean).map((part) => {
+    const one = /^\$?([A-Z]+)\$?(\d+)$/.exec(part);
+    if (one) return { top: Number(one[2]), left: letterIndex(one[1]), bottom: Number(one[2]), right: letterIndex(one[1]) };
+    return parseArea(part.replace(/\$/g, ''));
+  }).filter(Boolean);
+}
+
+// Text inside quotes in a formula: "\"On Track\"" -> On Track; null when it isn't a plain text/number
+function literal(formula) {
+  const s = String(formula ?? '').trim();
+  const q = /^"((?:[^"]|"")*)"$/.exec(s);
+  if (q) return q[1].replace(/""/g, '"');
+  if (/^-?\d+(\.\d+)?$/.test(s)) return s;
+  return null;
+}
+
+/**
+ * Conditional formatting the grid can apply itself, evaluated on each cell's value:
+ *   contains / notContains / beginsWith / endsWith (text, case-insensitive, like Excel's SEARCH)
+ *   equal / notEqual / greaterThan / lessThan / … with a literal value
+ * Rules that use formulas or broken references (#REF!) are left out, as Excel can't apply those either.
+ * Returns [{ areas, rules: [{ type, value, stop, style: { bg, color, bold, italic } }] }] by priority.
+ */
+function conditionalRules(ws, theme) {
+  const out = [];
+  for (const cf of ws.conditionalFormattings || []) {
+    const areas = parseAreas(cf.ref);
+    if (!areas.length) continue;
+    const rules = [];
+    for (const r of [...(cf.rules || [])].sort((a, b) => (a.priority || 0) - (b.priority || 0))) {
+      let type = null;
+      let value = null;
+      const formula = String(r.formulae?.[0] ?? '');
+      if (r.type === 'containsText') {
+        value = r.text ?? (/(?:SEARCH|FIND)\("((?:[^"]|"")*)"/i.exec(formula)?.[1] || /LEFT\([^,]+,\s*LEN\("((?:[^"]|"")*)"\)\)/i.exec(formula)?.[1] || null);
+        const op = r.operator || '';
+        type = /notContains/i.test(op) ? 'notContains' : /beginsWith/i.test(op) ? 'beginsWith' : /endsWith/i.test(op) ? 'endsWith' : 'contains';
+        if (!r.operator && /^ISERROR/i.test(formula)) type = 'notContains';
+      } else if (r.type === 'cellIs') {
+        value = literal(formula);
+        type = r.operator || 'equal';
+      }
+      if (!type || value === null || value === undefined || /#REF!/i.test(formula)) continue;
+      const fill = r.style?.fill;
+      const style = {
+        bg: fill ? resolveColor(fill.bgColor || fill.fgColor, theme) : null,
+        color: resolveColor(r.style?.font?.color, theme),
+        bold: r.style?.font?.bold ? true : undefined,
+        italic: r.style?.font?.italic ? true : undefined,
+      };
+      if (!style.bg && !style.color && !style.bold && !style.italic) continue;
+      rules.push({ type, value: String(value), stop: !!r.stopIfTrue, style });
+    }
+    if (rules.length) out.push({ areas, rules });
+  }
+  return out;
+}
+
+// Values of a list given as a range, e.g. "$Z$1:$Z$4" or "Lists!$A$1:$A$9"
+function rangeValues(workbook, ws, ref) {
+  const m = /^(?:'?([^'!]+)'?!)?\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?$/.exec(String(ref).replace(/^=/, ''));
+  if (!m) return null;
+  const sheet = m[1] ? workbook.getWorksheet(m[1]) : ws;
+  if (!sheet) return null;
+  const [c1, r1, c2, r2] = [letterIndex(m[2]), Number(m[3]), letterIndex(m[4] || m[2]), Number(m[5] || m[3])];
+  const values = [];
+  for (let r = r1; r <= r2; r++) for (let col = c1; col <= c2; col++) {
+    const text = String(sheet.getRow(r).getCell(col).text ?? '').trim();
+    if (text) values.push(text);
+  }
+  return values;
+}
+
+/**
+ * Dropdown lists (data validation "List"): [{ list: [...], strict, allowBlank, areas }]. `strict` is
+ * Excel's "Stop" alert: other values are refused. Cells are grouped into column runs.
+ */
+function dropdownLists(workbook, ws) {
+  const model = ws.dataValidations?.model || {};
+  const groups = new Map();
+  for (const [ref, v] of Object.entries(model)) {
+    if (v.type !== 'list' || !v.formulae?.[0]) continue;
+    const formula = String(v.formulae[0]);
+    const quoted = /^"(.*)"$/s.exec(formula);
+    const list = quoted ? quoted[1].split(',').map((s) => s.trim()).filter(Boolean) : rangeValues(workbook, ws, formula);
+    if (!list?.length) continue;
+    const strict = v.showErrorMessage !== false && (!v.errorStyle || v.errorStyle === 'stop');
+    const key = JSON.stringify([list, strict, !!v.allowBlank]);
+    if (!groups.has(key)) groups.set(key, { list, strict, allowBlank: !!v.allowBlank, cells: new Map() });
+    for (const a of parseAreas(ref)) {
+      for (let col = a.left; col <= a.right; col++) {
+        const rows = groups.get(key).cells.get(col) || [];
+        for (let r = a.top; r <= a.bottom; r++) rows.push(r);
+        groups.get(key).cells.set(col, rows);
+      }
+    }
+  }
+  return [...groups.values()].map((g) => {
+    const areas = [];
+    for (const [col, rows] of g.cells) {
+      const sorted = [...new Set(rows)].sort((x, y) => x - y);
+      let start = sorted[0];
+      for (let i = 1; i <= sorted.length; i++) {
+        if (i === sorted.length || sorted[i] !== sorted[i - 1] + 1) {
+          areas.push({ top: start, bottom: sorted[i - 1], left: col, right: col });
+          start = sorted[i];
+        }
+      }
+    }
+    return { list: g.list, strict: g.strict, allowBlank: g.allowBlank, areas };
+  });
+}
+
+function describeSheet(ws, theme, workbook) {
   const styles = [];
   const styleIndex = new Map();
   const styleOf = (cell) => {
@@ -103,6 +218,8 @@ function describeSheet(ws, theme) {
       v: a.vertical || null,
       wrap: !!a.wrapText,
     };
+    // Number format ";;;" hides the value: Excel shows only the cell's color (e.g. a traffic light)
+    if (/^\s*;;;?\s*$/.test(String(cell.numFmt || ''))) style.hideText = true;
     const key = JSON.stringify(style);
     if (!styleIndex.has(key)) {
       styleIndex.set(key, styles.length);
@@ -134,6 +251,8 @@ function describeSheet(ws, theme) {
   const view = (ws.views || [])[0] || {};
   return {
     merges,
+    conditional: conditionalRules(ws, theme),
+    dropdowns: dropdownLists(workbook, ws),
     name: ws.name,
     tabColor: resolveColor(ws.properties?.tabColor, theme),
     zoom: view.zoomScale || 100,
@@ -156,7 +275,7 @@ function describeSheet(ws, theme) {
   const sheets = {};
   for (const ws of workbook.worksheets) {
     if (ws.state !== 'visible') continue;
-    sheets[ws.name] = describeSheet(ws, theme);
+    sheets[ws.name] = describeSheet(ws, theme, workbook);
   }
   parentPort.postMessage({ sheets });
 })().catch((err) => parentPort.postMessage({ error: err.message }));

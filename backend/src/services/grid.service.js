@@ -139,6 +139,36 @@ function rowIdentity(layout, cells) {
   };
 }
 
+// Excel areas (1-based sheet columns) as grid column ranges { top, bottom, c1, c2 }; parts outside the grid are cut off
+function toGridAreas(areas, layout, columnCount) {
+  return (areas || []).map((a) => ({
+    top: a.top,
+    bottom: a.bottom,
+    c1: Math.max(0, a.left - 1 - layout.firstCol),
+    c2: Math.min(columnCount - 1, a.right - 1 - layout.firstCol),
+  })).filter((a) => a.c1 <= a.c2);
+}
+
+// The strict dropdown list (Excel data validation with a "Stop" alert) covering a cell, or null
+function strictListAt(format, rowNumber, absCol) {
+  const c1 = absCol + 1;
+  return (format?.dropdowns || []).find((d) => d.strict && d.areas.some((a) => a.left <= c1 && a.right >= c1 && a.top <= rowNumber && a.bottom >= rowNumber)) || null;
+}
+
+/**
+ * Checks a value against the cell's strict dropdown list like Excel does. Returns the list's own
+ * spelling of the value ("on track" -> "On Track"); throws when the value isn't in the list.
+ */
+function checkDropdown(format, rowNumber, absCol, value, address) {
+  const dd = strictListAt(format, rowNumber, absCol);
+  if (!dd) return value;
+  const text = String(value ?? '').trim();
+  if (!text) return value;
+  const hit = dd.list.find((item) => item.toLowerCase() === text.toLowerCase());
+  if (!hit) throw httpError(400, `${address} only accepts a value from its list: ${dd.list.join(', ')}.`);
+  return hit;
+}
+
 async function requireSheet(wb, sheet) {
   const sheets = await listVisibleSheets(wb);
   if (!sheets.some((s) => s.name === sheet)) throw httpError(404, `Sheet "${sheet}" not found in "${wb.name}".`);
@@ -224,6 +254,11 @@ async function getGridForUser(wb, user, { sheet, department, refresh = false } =
     defaultColWidth: format.defaultColWidth,
     styles: format.styles,
     headerHeight: format.rowHeights[headerRowNumber] || null,
+    // Excel's conditional formatting (colors that depend on the value) and dropdown lists, by grid column
+    conditional: (format.conditional || []).map((cf) => ({ areas: toGridAreas(cf.areas, layout, headers.length), rules: cf.rules }))
+      .filter((cf) => cf.areas.length),
+    dropdowns: (format.dropdowns || []).map((d) => ({ list: d.list, strict: d.strict, allowBlank: d.allowBlank, areas: toGridAreas(d.areas, layout, headers.length) }))
+      .filter((d) => d.areas.length),
     columns: headers.map((_, i) => ({
       width: format.columns[absoluteCol(i)]?.width ?? null,
       hidden: !!format.columns[absoluteCol(i)]?.hidden,
@@ -305,6 +340,8 @@ async function updateCellForUser(wb, user, { sheet, row, column, value, previous
 
   let toWrite = String(value ?? '');
   if (toWrite.length > MAX_CELL_LENGTH) throw httpError(400, `Text is too long (max ${MAX_CELL_LENGTH} characters).`);
+  // A cell with a strict dropdown list (Excel data validation) only takes a value from that list
+  toWrite = checkDropdown(await getSheetFormat(wb, sheet), row, layout.firstCol + col, toWrite, `${column}${row}`);
   let numberFormat;
   if (layout.dateColumns.includes(col) && /^\d{4}-\d{2}$/.test(toWrite)) {
     toWrite = monthToExcelSerial(toWrite);
@@ -495,6 +532,7 @@ async function pasteForUser(wb, user, { sheet, targets }) {
   if (!layout) throw httpError(422, `"${sheet}" can't be edited here.`);
   const access = accessFor(user);
   const levels = hierarchyByRow(layout, range);
+  const format = await getSheetFormat(wb, sheet);
 
   const denied = [];
   const blocked = [];
@@ -518,6 +556,7 @@ async function pasteForUser(wb, user, { sheet, targets }) {
       }
       let text = String(value ?? '');
       if (text.length > MAX_CELL_LENGTH) throw httpError(400, `${column}${t.row}: text is too long (max ${MAX_CELL_LENGTH} characters).`);
+      text = checkDropdown(format, t.row, layout.firstCol + col, text, `Nothing was pasted: ${column}${t.row}`);
       let write = text;
       let isDate = false;
       if (layout.dateColumns.includes(col) && (monthText(text) || /^\d{4}-\d{2}$/.test(text))) {
