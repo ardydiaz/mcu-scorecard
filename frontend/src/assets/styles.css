@@ -1476,3 +1476,103 @@ a.btn { text-decoration: none; }
 .xl-letter--dragging { opacity: 0.45; }
 .xl-letter--drop-left { box-shadow: inset 3px 0 0 #107c41; }
 .xl-letter--drop-right { box-shadow: inset -3px 0 0 #107c41; }
+
+/* Dropdown lists from the Excel file (data validation), like Excel's in-cell list button */
+.xl-dd-btn {
+  position: absolute; top: 50%; right: -20px; z-index: 7; width: 18px; height: 18px; padding: 0;
+  transform: translateY(-50%); border: 1px solid #a6a6a6; border-radius: 2px; background: #fff; color: #444;
+  font-size: 11px; line-height: 1; cursor: pointer;
+}
+.xl-dd-btn:hover { background: #e6e6e6; }
+.xl-dd-list {
+  position: absolute; top: calc(100% + 1px); left: -1px; z-index: 8; min-width: calc(100% + 2px); max-height: 220px; overflow-y: auto;
+  padding: 2px 0; border: 1px solid #a6a6a6; background: #fff; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  font: 12px 'Segoe UI', Calibri, sans-serif;
+}
+.xl-dd-item { display: block; width: 100%; padding: 4px 10px; border: 0; background: none; color: #222; font: inherit; text-align: left; white-space: nowrap; cursor: pointer; }
+.xl-dd-item:hover { background: #d3f0e0; }
+.xl-dd-item--on { font-weight: 700; }
+
+/* ===== Strategy Map diagram (pages/StrategyDiagram) ===== */
+.smap { --smap-lime: #b5d94a; --smap-pink: #e8196a; --smap-pink-line: #ff5c93; --smap-gold: #ffd62e; }
+.smap-hero {
+  position: relative; overflow: hidden; padding: 30px 32px; border-radius: var(--radius); color: #fff;
+  background: radial-gradient(ellipse 600px 380px at 95% -20%, rgba(255, 214, 46, 0.18), transparent 60%),
+    radial-gradient(ellipse 500px 320px at -10% 120%, rgba(232, 25, 106, 0.22), transparent 60%),
+    linear-gradient(160deg, #2e0046 0%, #491464 100%);
+  border-bottom: 5px solid var(--smap-gold); box-shadow: var(--shadow);
+}
+.smap-hero__eyebrow { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; color: var(--smap-gold); font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; }
+.smap-hero__eyebrow i { width: 6px; height: 6px; border-radius: 50%; background: var(--smap-gold); }
+.smap-hero__title { margin: 0 0 8px; font-size: 32px; font-weight: 900; letter-spacing: -0.01em; }
+.smap-hero__sub { margin: 0; max-width: 760px; color: #e8ddf2; font-size: 14px; line-height: 1.6; }
+
+.smap-canvas {
+  padding: 18px 18px 14px; border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  background: radial-gradient(ellipse 70% 60% at 50% 35%, rgba(232, 25, 106, 0.16), transparent 70%),
+    radial-gradient(ellipse 60% 50% at 50% 100%, rgba(255, 214, 46, 0.1), transparent 70%),
+    linear-gradient(180deg, #2a003f 0%, #1c0029 100%);
+}
+.smap-canvas svg { display: block; width: 100%; height: auto; max-height: 72vh; }
+.smap-lane { fill: rgba(255, 255, 255, 0.035); stroke: rgba(255, 255, 255, 0.06); }
+.smap-lane__label { fill: rgba(255, 214, 46, 0.55); font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; }
+
+.smap-link { fill: none; stroke-width: 2.5; stroke-linejoin: round; opacity: 0.9; }
+.smap-link--pink { stroke: var(--smap-pink-line); }
+.smap-link--gold { stroke: var(--smap-gold); }
+/* A light pulse travelling along each connector, in the direction it points */
+.smap-flow { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 10 190; animation: smap-flow 3.2s linear infinite; opacity: 0.95; }
+.smap-flow--pink { stroke: #fff; filter: drop-shadow(0 0 4px var(--smap-pink-line)); }
+.smap-flow--gold { stroke: #fff6c2; filter: drop-shadow(0 0 4px var(--smap-gold)); }
+@keyframes smap-flow { from { stroke-dashoffset: 200; } to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) { .smap-flow { display: none; } .smap-node { transition: none !important; } }
+
+.smap-node { pointer-events: none; }
+.smap-node__shape { stroke-width: 2; transition: stroke 0.18s, stroke-width 0.18s; }
+.smap-node__title { font-size: 16px; font-weight: 800; }
+.smap-node__stats { font-size: 11px; font-weight: 600; pointer-events: none; opacity: 0.85; }
+.smap-node--finance .smap-node__shape { fill: var(--smap-lime); stroke: #d8f08a; }
+.smap-node--finance text { fill: #233000; }
+.smap-node--student .smap-node__shape, .smap-node--quality .smap-node__shape { fill: var(--smap-pink); stroke: #ff7fae; }
+.smap-node--student text, .smap-node--quality text { fill: #fff; }
+.smap-node--innovation .smap-node__shape { fill: var(--smap-gold); stroke: #fff0a8; }
+.smap-node--innovation text { fill: #2e0046; }
+.smap-node.is-active .smap-node__shape, .smap-node:focus-visible .smap-node__shape { stroke: #fff; stroke-width: 3; }
+.smap-flag { fill: #ff3b30; stroke: #fff; stroke-width: 2; }
+.smap-flag__text { fill: #fff; font-size: 11px; font-weight: 800; pointer-events: none; }
+
+.smap-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 10px 6px 2px; color: #d9c8e8; font-size: 12.5px; }
+.smap-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.smap-legend__hint { margin-left: auto; color: rgba(255, 255, 255, 0.55); font-style: italic; }
+.smap-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.smap-dot--finance { background: var(--smap-lime); }
+.smap-dot--quality { background: var(--smap-pink); }
+.smap-dot--innovation { background: var(--smap-gold); }
+.smap-dot--flag { background: #ff3b30; box-shadow: 0 0 0 2px #fff inset; }
+
+.smap-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; margin-top: 4px; }
+.smap-card {
+  --k: var(--smap-pink);
+  display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; text-align: left; cursor: pointer;
+  border: 1px solid var(--border); border-left: 5px solid var(--k); border-radius: 12px; background: var(--surface); color: var(--text); font: inherit;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.smap-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+.smap-card--finance { --k: #8fb62a; }
+.smap-card--innovation { --k: #e0b400; }
+.smap-card__kind { color: var(--muted); font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+.smap-card b { font-size: 15px; }
+.smap-card__bar { height: 6px; overflow: hidden; border-radius: 3px; background: var(--surface-2); }
+.smap-card__bar i { display: block; height: 100%; border-radius: 3px; background: var(--k); }
+.smap-card__meta { color: var(--muted); font-size: 12.5px; }
+.smap-card__meta strong { color: var(--text); }
+.smap-card__meta em { color: #c0263f; font-style: normal; font-weight: 600; }
+.smap-others { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.smap-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
+.smap-chip:hover { border-color: var(--primary); }
+@media (max-width: 640px) {
+  .smap-hero { padding: 24px 18px; }
+  .smap-hero__title { font-size: 26px; }
+  .smap-canvas { padding: 10px; }
+  .smap-legend__hint { margin-left: 0; }
+}

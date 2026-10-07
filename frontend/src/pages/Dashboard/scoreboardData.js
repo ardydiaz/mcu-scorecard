@@ -43,11 +43,13 @@ export const CATEGORIES = [
 ];
 
 export function category(d) {
-  if (d.stage === 'Complete') return 'completed';
-  if (!d.status) return 'unreported';
-  if (d.status === 'On Track') return 'ontrack';
+  // A Behind / At Risk traffic light is what the department reports, so it counts even when the
+  // note says the project is completed
   if (d.status === 'Behind') return 'behind';
-  return 'atrisk'; // At Risk, Off Track
+  if (d.status === 'At Risk' || d.status === 'Off Track') return 'atrisk';
+  if (d.stage === 'Complete') return 'completed';
+  if (d.status === 'On Track') return 'ontrack';
+  return 'unreported'; // empty, "Clear", or a value that isn't a traffic light
 }
 
 export const STAGE_COLORS = {
@@ -116,7 +118,7 @@ export function watchItems(projects, asOf) {
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
   const names = (list, extra = () => '') => `${list.map((d) => `${shortName(d.name)}${extra(d)}`).join(', ')}.`;
 
-  const flagged = open.filter((d) => ['behind', 'atrisk'].includes(category(d)));
+  const flagged = projects.filter((d) => ['behind', 'atrisk'].includes(category(d)));
   if (flagged.length) {
     items.push({
       tone: 'stop',

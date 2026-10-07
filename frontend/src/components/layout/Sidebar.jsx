@@ -3,6 +3,7 @@ import useAuth from '../../hooks/useAuth';
 
 const links = [
   { to: '/dashboard', label: 'Dashboard' },
+  { to: '/strategy', label: 'Strategy Map' },
   { to: '/strategy-map', label: 'Strategy Scoreboard' },
   { to: '/profile', label: 'Profile' },
 ];

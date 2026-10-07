@@ -155,6 +155,29 @@ function parseClipboard(text) {
   if (cell !== '' || row.length) { row.push(cell); out.push(row); }
   return out;
 }
+// Does a conditional formatting rule (from the Excel file) apply to this value? Text rules ignore case,
+// like Excel's SEARCH; number comparisons need both sides to be numbers.
+function ruleMatches(rule, value) {
+  const v = String(value ?? '');
+  const lower = v.toLowerCase();
+  const t = String(rule.value).toLowerCase();
+  const num = (x) => (x !== '' && !Number.isNaN(Number(x)) ? Number(x) : null);
+  const [a, b] = [num(v), num(rule.value)];
+  switch (rule.type) {
+    case 'contains': return t !== '' && lower.includes(t);
+    case 'notContains': return !lower.includes(t);
+    case 'beginsWith': return lower.startsWith(t);
+    case 'endsWith': return lower.endsWith(t);
+    case 'equal': return a !== null && b !== null ? a === b : lower === t;
+    case 'notEqual': return a !== null && b !== null ? a !== b : lower !== t;
+    case 'greaterThan': return a !== null && b !== null && a > b;
+    case 'lessThan': return a !== null && b !== null && a < b;
+    case 'greaterThanOrEqual': return a !== null && b !== null && a >= b;
+    case 'lessThanOrEqual': return a !== null && b !== null && a <= b;
+    default: return false;
+  }
+}
+
 const clipboardCell = (v) => (/[\t\n\r"]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
 
 export default function SheetGrid({
@@ -175,6 +198,7 @@ export default function SheetGrid({
   // The user's own column order (column keys), or null for the sheet's order; changed by dragging letters
   const [colOrder, setColOrder] = useState(grid.columnOrder || null);
   const [drag, setDrag] = useState(null); // { from: grid column, to: grid column, side: 'left' | 'right' }
+  const [listOpen, setListOpen] = useState(false); // the selected cell's dropdown list (Excel data validation) is open
   // Local copy of the workbook's style table; formatting done here adds styles to it
   const [styles, setStyles] = useState(format?.styles || []);
   const [sel, setSel] = useState({ r: 0, c: 0 });
@@ -255,6 +279,34 @@ export default function SheetGrid({
   }, [sheetCols, colOrder]);
   const customOrder = cols.some((h, i) => h !== sheetCols[i]);
   const style = (index) => (index === null || index === undefined ? null : styles[index]);
+
+  // ---- Excel's conditional formatting and dropdown lists (from the file, by grid column) ----
+  const covers = (a, rowNumber, i) => a.top <= rowNumber && a.bottom >= rowNumber && a.c1 <= i && a.c2 >= i;
+  // The cell's look: its own style, with the first matching conditional formatting rule on top
+  const cellStyle = (row, i) => {
+    const base = style(row.styles?.[i]);
+    for (const cf of format?.conditional || []) {
+      if (!cf.areas.some((a) => covers(a, row.row, i))) continue;
+      const rule = cf.rules.find((r) => ruleMatches(r, row.cells[i]));
+      if (rule) {
+        return {
+          ...(base || {}),
+          ...(rule.style.bg && { bg: rule.style.bg }),
+          ...(rule.style.color && { color: rule.style.color }),
+          ...(rule.style.bold !== undefined && { bold: rule.style.bold }),
+          ...(rule.style.italic !== undefined && { italic: rule.style.italic }),
+        };
+      }
+    }
+    return base;
+  };
+  const dropdownAt = (row, i) => (row ? (format?.dropdowns || []).find((d) => d.areas.some((a) => covers(a, row.row, i))) || null : null);
+  // A strict list (Excel's "Stop" alert) refuses other values; returns the list's spelling, or null when refused
+  const listValue = (dd, value) => {
+    const text = String(value ?? '').trim();
+    if (!dd?.strict || !text) return value;
+    return dd.list.find((item) => item.toLowerCase() === text.toLowerCase()) ?? null;
+  };
   const widthOf = (i) => colPx(format?.columns[i]?.width ?? format?.defaultColWidth) * zoom;
   const rowHeightOf = (row) => ptPx(row.height || format?.defaultRowHeight || DEFAULT_HEIGHT_PT) * zoom;
   const headerHeight = ptPx(format?.headerHeight || 30) * zoom;
@@ -692,6 +744,8 @@ export default function SheetGrid({
     });
   }
 
+  useEffect(() => { setListOpen(false); }, [sel.r, sel.c]);
+
   // Keep the selected cell visible
   useEffect(() => {
     if (keepScroll.current) { keepScroll.current = false; return; }
@@ -827,10 +881,20 @@ export default function SheetGrid({
     const previous = edit.original;
     const isDate = grid.dateColumns.includes(col);
     if (value === previous || (isDate && value === toMonthInput(previous))) return;
+    const dd = dropdownAt(current, col);
+    const allowed = listValue(dd, value);
+    if (allowed === null) {
+      setStatus(`${currentCol.letter}${current.row} only accepts a value from its list: ${dd.list.join(', ')}. Use the ▾ button (or Alt+↓) to choose one.`, true);
+      return;
+    }
+    await saveValue(current, col, allowed, previous);
+  }
 
-    const row = current;
+  // Saves one cell's value (typed, or chosen from a dropdown list), with undo and error display
+  async function saveValue(row, col, value, previous) {
+    const colInfo = cols.find((h) => h.index === col);
     const key = cellKey(row.row, col);
-    const cellAddress = `${currentCol.letter}${row.row}`;
+    const cellAddress = `${colInfo?.letter || grid.headers[col].letter}${row.row}`;
     setSaving(key);
     setStatus(`Saving ${cellAddress}…`);
     setErrors((e) => ({ ...e, [key]: undefined }));
@@ -1046,6 +1110,13 @@ export default function SheetGrid({
       return;
     }
     if (e.key === 'F2') { e.preventDefault(); startEdit(); return; }
+    // Excel: Alt+Down opens the cell's dropdown list
+    if (e.altKey && e.key === 'ArrowDown' && current && currentCol && dropdownAt(current, currentCol.index) && !isReadOnly(current, currentCol.index)) {
+      e.preventDefault();
+      setListOpen(true);
+      return;
+    }
+    if (e.key === 'Escape' && listOpen) { e.preventDefault(); setListOpen(false); return; }
     // Delete/Backspace start editing an empty cell (Enter confirms), like typing over it
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); startEdit(''); return; }
     if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -1281,7 +1352,7 @@ export default function SheetGrid({
                         colSpan={merged && merged.c1 > merged.c0 ? merged.c1 - merged.c0 + 1 : undefined}
                         rowSpan={merged && merged.r1 > merged.r0 ? merged.r1 - merged.r0 + 1 : undefined}
                         className={classes.join(' ')}
-                        style={cellCss(style(row.styles?.[i]), zoom)}
+                        style={cellCss(cellStyle(row, i), zoom)}
                         title={errors[key] || undefined}
                         onContextMenu={openCellMenu}
                         onMouseDown={(e) => {
@@ -1299,8 +1370,40 @@ export default function SheetGrid({
                         onDoubleClick={() => startEdit()}
                       >
                         <div className="xl-clip" style={{ maxHeight: merged ? rows.slice(merged.r0, merged.r1 + 1).reduce((sum, x) => sum + rowHeightOf(x), 0) : height }}>
-                          {row.cells[i]}
+                          {cellStyle(row, i)?.hideText ? '' : row.cells[i]}
                         </div>
+                        {selected && !editing && dropdownAt(row, i) && !isReadOnly(row, i) && (
+                          <button
+                            type="button"
+                            className="xl-dd-btn"
+                            title="Choose from the list (Alt+↓)"
+                            aria-label="Open the list"
+                            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setListOpen((o) => !o); }}
+                          >
+                            ▾
+                          </button>
+                        )}
+                        {selected && listOpen && !editing && dropdownAt(row, i) && (
+                          <div className="xl-dd-list" role="listbox" onMouseDown={(e) => e.stopPropagation()}>
+                            {dropdownAt(row, i).list.map((item) => (
+                              <button
+                                key={item}
+                                type="button"
+                                role="option"
+                                aria-selected={String(row.cells[i]).trim().toLowerCase() === item.toLowerCase()}
+                                className={String(row.cells[i]).trim().toLowerCase() === item.toLowerCase() ? 'xl-dd-item xl-dd-item--on' : 'xl-dd-item'}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  setListOpen(false);
+                                  scrollRef.current?.focus({ preventScroll: true });
+                                  if (String(row.cells[i]) !== item) saveValue(row, i, item, row.cells[i] || '');
+                                }}
+                              >
+                                {item}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                         {selected && !editing && clipped && (
                           <div className="xl-peek" role="tooltip">{row.cells[i]}</div>
                         )}
