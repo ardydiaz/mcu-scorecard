@@ -63,7 +63,11 @@ export const STAGE_COLORS = {
 export const stageColor = (stage) => STAGE_COLORS[stage] || 'var(--sb-st-review)';
 export const STAGE_LABEL = { Waiting: 'Waiting on others', 'Project China': 'In Project China' };
 
-// Whole-number shares of `total` that add up to the rounded total share (largest remainder)
+/**
+ * Whole-number percentages of `total` that add up to exactly 100 when the counts cover everything
+ * (largest remainder). A count above zero never shows as 0%: it gets at least 1%, taken from the
+ * largest share, so "1 of 293 projects" reads 1% and the cards still total 100%.
+ */
 export function shares(counts, total) {
   if (!total) return counts.map(() => 0);
   const raw = counts.map((c) => (c / total) * 100);
@@ -71,6 +75,11 @@ export function shares(counts, total) {
   let left = Math.round((counts.reduce((a, b) => a + b, 0) / total) * 100) - out.reduce((a, b) => a + b, 0);
   const order = raw.map((r, i) => [r - out[i], i]).sort((a, b) => b[0] - a[0]);
   for (let j = 0; left > 0 && j < order.length; j++, left--) out[order[j][1]]++;
+  counts.forEach((n, i) => {
+    if (n <= 0 || out[i] > 0) return;
+    const biggest = out.reduce((best, v, k) => (v > out[best] ? k : best), 0);
+    if (out[biggest] > 1) { out[biggest]--; out[i] = 1; }
+  });
   return out;
 }
 
