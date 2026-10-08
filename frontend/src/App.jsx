@@ -5,6 +5,9 @@ import Login from './pages/Login/Login';
 import Dashboard from './pages/Dashboard/Dashboard';
 import StrategyMap from './pages/StrategyMap/StrategyMap';
 import StrategyDiagram from './pages/StrategyDiagram/StrategyDiagram';
+import AboutMcu from './pages/Home/AboutMcu';
+import History from './pages/Home/History';
+import Purpose from './pages/Home/Purpose';
 import Profile from './pages/Profile/Profile';
 import Departments from './pages/Departments/Departments';
 import Users from './pages/Users/Users';
@@ -23,6 +26,9 @@ export default function App() {
           <Route path="/strategy" element={<StrategyDiagram />} />
           <Route path="/strategy-map" element={<StrategyMap />} />
           <Route path="/profile" element={<Profile />} />
+          <Route path="/home/about" element={<AboutMcu />} />
+          <Route path="/home/history" element={<History />} />
+          <Route path="/home/purpose" element={<Purpose />} />
         </Route>
       </Route>
 
