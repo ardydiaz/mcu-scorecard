@@ -79,9 +79,50 @@ npm start                # or restart the PM2 / Windows service
 3. **Certificates & secrets** → create a client secret → `AZURE_CLIENT_SECRET` (backend only; used for Graph calls).
 4. Copy the **Application (client) ID** and **Directory (tenant) ID** into `backend/.env` and `frontend/.env`.
 5. **API permissions** → Microsoft Graph:
-   - Delegated: `User.Read` (sign-in)
-   - Application: `User.Read.All` (department lookup at sign-in, user sync), `Files.Read.All` or `Sites.Read.All` (Excel)
+   - Delegated: `User.Read` (sign-in, profile photo)
+   - Application: `User.Read.All` (department lookup at sign-in)
+   - Application: `Sites.Selected` (Excel). The backend **writes** to the workbooks (cells, columns, formatting),
+     so read-only permissions are not enough. Do **not** use `Files.ReadWrite.All` or `Sites.ReadWrite.All`:
+     those let the app change every file in the tenant. `Sites.Selected` gives no access until step 6.
    - Grant admin consent.
+6. **Give the app write access to the scorecard site only.** `Sites.Selected` starts with access to nothing; a
+   SharePoint admin grants it the one site that holds the scorecard files. With PnP PowerShell:
+
+   ```powershell
+   Connect-PnPOnline -Url https://<tenant>.sharepoint.com/sites/<site> -Interactive -ClientId <your PnP app id>
+   Grant-PnPAzureADAppSitePermission -AppId <AZURE_CLIENT_ID> -DisplayName "MCU Scorecard" `
+     -Site https://<tenant>.sharepoint.com/sites/<site> -Permissions Write
+   ```
+
+   Or with Graph Explorer, signed in as an admin (needs `Sites.FullControl.All`):
+
+   ```http
+   GET  https://graph.microsoft.com/v1.0/sites/<tenant>.sharepoint.com:/sites/<site>      → copy "id"
+   POST https://graph.microsoft.com/v1.0/sites/<site id>/permissions
+   { "roles": ["write"],
+     "grantedToIdentities": [{ "application": { "id": "<AZURE_CLIENT_ID>", "displayName": "MCU Scorecard" } }] }
+   ```
+
+   Check it with `GET https://graph.microsoft.com/v1.0/sites/<site id>/permissions`. If the app later gets
+   `403 accessDenied` from Excel, the files are on a different site than the one granted.
+
+### Production (Linux, behind nginx)
+
+The API listens on `HOST=127.0.0.1` by default, so only nginx on the same server can reach it; keep port
+5005 closed in the firewall as well. nginx must pass the visitor's address so audit logs record the real IP
+(the API trusts `X-Forwarded-For` only from `TRUST_PROXY`, by default `loopback`):
+
+```nginx
+location /api/ {
+    proxy_pass http://127.0.0.1:5005;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+If nginx runs on a different machine, set `HOST=0.0.0.0` (or the server's private IP), set `TRUST_PROXY` to the
+nginx server's IP, and allow port 5005 only from that IP in the firewall.
 
 ### API
 

@@ -31,8 +31,8 @@ async function start() {
     // Finds the Excel files in the scorecard folder
     const defaultWorkbook = await initWorkbooks();
 
-    app.listen(env.port, () => {
-      logger.info(`MCU Scorecard API running on http://localhost:${env.port}`);
+    app.listen(env.port, env.host, () => {
+      logger.info(`MCU Scorecard API running on http://${env.host}:${env.port}`);
       warmUpFormats(defaultWorkbook);
     });
   } catch (err) {

@@ -1,9 +1,20 @@
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env'), quiet: true });
 
+function parseTrustProxy(value) {
+  if (!value) return 'loopback';
+  if (value === 'true' || value === 'false') return value === 'true';
+  return /^\d+$/.test(value) ? Number(value) : value;
+}
+
 const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT, 10) || 5005,
+  // Network address the API listens on. 127.0.0.1 = this machine only (behind nginx); 0.0.0.0 = every interface
+  host: process.env.HOST || '127.0.0.1',
+  // Which proxies may set X-Forwarded-For (so audit logs record the visitor's IP, not nginx's).
+  // Express "trust proxy" value: loopback (default, nginx on the same server), an IP/subnet, a hop count, or false
+  trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
   clientUrl: process.env.CLIENT_URL || 'http://localhost:6001',
   // Apply database changes when the server starts. On by default except in production, where
   // they are applied with `npm run migrate` (set AUTO_MIGRATE=true/false to override)

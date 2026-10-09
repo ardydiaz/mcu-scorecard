@@ -16,6 +16,9 @@ const workbookRoutes = require('./routes/workbook.routes');
 
 const app = express();
 
+// Behind nginx: take the visitor's IP (req.ip) from X-Forwarded-For, but only when a trusted proxy sent it
+app.set('trust proxy', env.trustProxy);
+
 app.use(helmet());
 app.use(cors({ origin: env.clientUrl, credentials: true }));
 app.use(express.json({ limit: '1mb' }));
