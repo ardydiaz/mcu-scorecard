@@ -25,7 +25,7 @@ const DEFAULT_DEPARTMENTS = [
     code: 'EXECOM',
     name: 'Executive Committee',
     description: 'Executive Vice President, University President, Chairman of the Board of Trustees',
-    otherNames: ['Execom', 'Office of the President', 'Executive Vice President', 'Board of Trustees'],
+    otherNames: ['Execom', 'Office of the President', 'Executive Vice President', 'Board of Trustees', 'Chairman of the Board of Trustees'],
     viewAll: true,
     leadCodes: ['EVP', 'BOT', 'OP'],
   },

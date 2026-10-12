@@ -1,4 +1,4 @@
-const { fn, col } = require('sequelize');
+const { fn, col, Op } = require('sequelize');
 const Department = require('../models/Department');
 const UserDepartment = require('../models/UserDepartment');
 const User = require('../models/User');
@@ -123,9 +123,32 @@ async function getDepartment(id) {
   return department;
 }
 
+/**
+ * Links users who are waiting for a department: their M365 value matched nothing when they signed in
+ * (users.department holds that value as-is) and they have no department. Called after departments
+ * change, so adding the M365 name to a department takes effect without the user signing in again.
+ */
+async function linkWaitingUsers() {
+  const users = await User.findAll({ where: { department: { [Op.ne]: null } } });
+  const linked = new Set((await UserDepartment.findAll({ attributes: ['userId'], raw: true })).map((r) => r.userId));
+  let count = 0;
+  for (const user of users) {
+    if (linked.has(user.id)) continue;
+    const known = findDepartment(user.department);
+    const department = known && await Department.findOne({ where: { code: known.code } });
+    if (!department) continue;
+    await UserDepartment.create({ userId: user.id, departmentId: department.id });
+    await user.update({ department: department.code });
+    logger.info(`Linked ${user.email} to ${department.code} (M365 department "${user.department}")`);
+    count++;
+  }
+  return count;
+}
+
 async function createDepartment(input) {
   const department = await Department.create(await validate(input));
   await loadDepartments();
+  await linkWaitingUsers();
   return department;
 }
 
@@ -140,6 +163,7 @@ async function updateDepartment(id, input) {
     await User.update({ department: fields.code }, { where: { department: oldCode } });
   }
   await loadDepartments();
+  await linkWaitingUsers();
   return department;
 }
 
@@ -165,6 +189,7 @@ async function restoreDepartment(id) {
   await validate(department.toJSON(), department.id);
   await department.restore();
   await loadDepartments();
+  await linkWaitingUsers();
   return department;
 }
 
