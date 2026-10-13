@@ -1,6 +1,6 @@
 const { listWorksheets, getUsedRange, getTopRows } = require('./excel.service');
 const { departmentOptions, canonicalCode } = require('../config/departments');
-const { accessFor, rowVisible } = require('./access.service');
+const { accessFor, withoutNarrow, rowVisible } = require('./access.service');
 
 // Header names used across the scorecard sheets (matched case-insensitively)
 const COLUMN_PATTERNS = {
@@ -255,12 +255,13 @@ function invalidateAllScorecards() {
   cache.clear();
 }
 
-// Departments for the admin dropdown: every Lead code in the sheet, known departments first
+// Departments for the Lead dropdown: every Lead code in the scorecard given, known departments
+// first (KPIs kept only as the parent of visible projects don't count)
 function collectDepartments(scorecard) {
   const codes = new Set();
   const add = (item) => item.lead.forEach((c) => codes.add(c));
   for (const p of scorecard.perspectives) for (const o of p.objectives) for (const k of o.kras) {
-    for (const kpi of k.kpis) { add(kpi); kpi.projects.forEach(add); }
+    for (const kpi of k.kpis) { if (!kpi.contextOnly) add(kpi); kpi.projects.forEach(add); }
   }
   return departmentOptions(codes);
 }
@@ -366,15 +367,17 @@ async function resolveSheet(wb, sheetName) {
 async function getScorecardForUser(wb, user, { sheet, department, refresh } = {}) {
   const sheetName = await resolveSheet(wb, sheet);
   const full = await loadScorecard(wb, sheetName, { refresh });
-  const departments = collectDepartments(full);
   const access = accessFor(user, department);
   const { canViewAll, viewing } = access;
+  // View-all users choose from every department; a Department Head only from the rows they may see
+  const departments = collectDepartments(canViewAll ? full : filterByAccess(wb, full, withoutNarrow(access)));
 
   const visible = canViewAll && !viewing && !access.rules.some((r) => r.permission === 'hide') ? full : filterByAccess(wb, full, access);
   return {
     ...visible,
     departments,
     canViewAll,
+    canFilterLead: access.canFilterLead,
     viewingDepartments: viewing || [],
     // Access rules that add rows beyond the user's own Lead rows
     accessRuleCount: canViewAll ? 0 : access.rules.length,

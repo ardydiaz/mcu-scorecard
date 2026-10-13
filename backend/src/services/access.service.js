@@ -9,15 +9,22 @@ const { canonicalCode, departmentAccess } = require('../config/departments');
  *   rules       access rules for this user and their departments (user.accessRules, loaded by
  *               userService.getUserForAccess)
  *   viewing     Lead codes a view-all user narrowed the view to (the Lead dropdown), or null
+ *   canFilterLead  the Lead dropdown is offered: view-all users, and Department Heads ("manager")
+ *   narrow      the Lead code a Department Head picked: it only narrows the rows they may already see
  */
 function accessFor(user, department) {
   const userCodes = (user.departments || []).map((d) => canonicalCode(d.code || d.name));
   const { viewAll, editCodes } = departmentAccess(userCodes);
   const canEditAll = user.role === 'admin';
   const canViewAll = canEditAll || viewAll;
-  const viewing = canViewAll ? (department ? [canonicalCode(department)] : null) : userCodes;
-  return { canViewAll, canEditAll, userCodes, editCodes, viewing, rules: user.accessRules || [] };
+  const canFilterLead = canViewAll || user.role === 'manager';
+  const narrow = !canViewAll && canFilterLead && department && userCodes.length ? canonicalCode(department) : null;
+  const viewing = canViewAll ? (department ? [canonicalCode(department)] : null) : narrow ? [narrow] : userCodes;
+  return { canViewAll, canEditAll, canFilterLead, userCodes, editCodes, viewing, narrow, rules: user.accessRules || [] };
 }
+
+// The same access without a Department Head's Lead pick: the rows the Lead dropdown can choose from
+const withoutNarrow = (access) => ({ ...access, narrow: null });
 
 const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 
@@ -73,7 +80,8 @@ function rowVisible(access, facts) {
     if (isHidden(access, facts)) return false;
     return !access.viewing || facts.lead.some((c) => access.viewing.includes(c));
   }
+  if (access.narrow && !facts.lead.includes(access.narrow)) return false;
   return rowAccess(access, facts).view;
 }
 
-module.exports = { accessFor, rowAccess, rowVisible, ruleMatches };
+module.exports = { accessFor, withoutNarrow, rowAccess, rowVisible, ruleMatches };

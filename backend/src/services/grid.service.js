@@ -10,7 +10,7 @@ const {
   invalidateScorecard,
 } = require('./scorecard.service');
 const { departmentOptions } = require('../config/departments');
-const { accessFor, rowAccess, rowVisible } = require('./access.service');
+const { accessFor, withoutNarrow, rowAccess, rowVisible } = require('./access.service');
 const { getSheetFormat, updateCachedStyle, updateCachedMerge } = require('./format.service');
 const logger = require('../utils/logger');
 
@@ -191,10 +191,13 @@ async function getGridForUser(wb, user, { sheet, department, refresh = false } =
   const { columns, headers, headerRow, firstRow, hierarchy, kpiColumns } = layout;
   const access = accessFor(user, department);
   const { canViewAll, viewing } = access;
+  const choosable = withoutNarrow(access);
   const levels = hierarchyByRow(layout, range);
 
   const carried = {};
   const rows = [];
+  // Lead dropdown: every code in the sheet for view-all users; a Department Head only gets the
+  // codes on rows they may see, so the dropdown never names rows hidden from them
   const leadCodes = new Set();
   let totalRows = 0;
 
@@ -215,8 +218,8 @@ async function getGridForUser(wb, user, { sheet, department, refresh = false } =
     const isKpiRow = columns.kpi !== undefined && cells[columns.kpi] && (lead.length || cells[columns.qualityPolicy]);
     if (isKpiRow) kpiColumns.forEach((k) => { carried[k] = cells[k]; });
 
-    lead.forEach((c) => leadCodes.add(c));
     const facts = rowFacts(wb, sheet, layout, range, r, levels, cells);
+    if (canViewAll || rowVisible(choosable, facts)) lead.forEach((c) => leadCodes.add(c));
     if (!rowVisible(access, facts)) continue;
 
     const identity = rowIdentity(layout, cells);
@@ -286,6 +289,7 @@ async function getGridForUser(wb, user, { sheet, department, refresh = false } =
     // Editing is allowed on this grid; each row's own `editable` says whether this user may change it
     editable: true,
     canViewAll,
+    canFilterLead: access.canFilterLead,
     viewingDepartments: viewing || [],
     // Access rules that add rows beyond the user's own Lead rows
     accessRuleCount: canViewAll ? 0 : access.rules.length,

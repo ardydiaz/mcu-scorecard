@@ -220,6 +220,7 @@ async function getScoreboardForUser(wb, user, { sheet, department, refresh } = {
     snapshots,
     stageColumn: items.some((d) => d.stageColumn),
     canViewAll: card.canViewAll,
+    canFilterLead: card.canFilterLead,
     viewingDepartments: card.viewingDepartments,
     departments: card.departments,
   };
