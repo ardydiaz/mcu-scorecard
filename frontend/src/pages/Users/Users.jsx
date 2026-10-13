@@ -80,14 +80,27 @@ export default function Users() {
     change(u, { isActive: !u.isActive }, `${name} ${u.isActive ? 'deactivated' : 'reactivated'}.`);
   }
 
+  // "View all departments": sees every row and the full Lead filter (editing stays limited to their own rows)
+  async function toggleViewAll(u) {
+    const name = u.displayName || u.email;
+    if (!u.viewAll && !(await confirmDialog({
+      title: `Let ${name} view all departments?`,
+      text: "They will see every department's rows on the Dashboard and Strategy Scoreboard, and can filter by any department. "
+        + 'They can still edit only the rows their own department leads.',
+      confirmText: 'Allow',
+    }))) return;
+    change(u, { viewAll: !u.viewAll }, u.viewAll ? `${name} now sees only their own rows.` : `${name} can now view all departments.`);
+  }
+
 
   return (
     <div className="page">
       <div className="page__heading">
         <h1 className="page__title">Users</h1>
         <p className="muted">
-          Everyone who has signed in or was synced from Microsoft 365. Admins can manage users and departments and see
-          all rows; changes take effect immediately.
+          Everyone who has signed in. Admins can manage users and departments and see all rows. Turn on
+          <strong> View all departments</strong> to let someone else (e.g. a Department Head) see and filter every department's
+          rows; they can still edit only their own. Changes take effect immediately.
         </p>
       </div>
 
@@ -127,6 +140,7 @@ export default function Users() {
                   <th>User</th>
                   <th>Department</th>
                   <th>Role</th>
+                  <th>View all departments</th>
                   <th>Status</th>
                   <th>Last sign-in</th>
                   <th aria-label="Actions" />
@@ -134,7 +148,7 @@ export default function Users() {
               </thead>
               <tbody>
                 {result.data.length === 0 && (
-                  <tr><td colSpan={6} className="muted">No users match.</td></tr>
+                  <tr><td colSpan={7} className="muted">No users match.</td></tr>
                 )}
                 {result.data.map((u) => {
                   const isMe = u.id === me?.id;
@@ -172,6 +186,17 @@ export default function Users() {
                         >
                           {roles.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
                         </select>
+                      </td>
+                      <td>
+                        {u.role === 'admin' ? (
+                          <span className="muted" title="Admins always see every department">Always (admin)</span>
+                        ) : (
+                          <label className="switch" title={u.viewAll ? 'Sees every department (click to limit to own rows)' : 'Sees only own rows (click to allow all departments)'}>
+                            <input type="checkbox" checked={!!u.viewAll} disabled={busy} onChange={() => toggleViewAll(u)} />
+                            <span className="switch__track" aria-hidden="true" />
+                            <span className="switch__label">{u.viewAll ? 'On' : 'Off'}</span>
+                          </label>
+                        )}
                       </td>
                       <td>
                         <span className={u.isActive ? 'status-pill status-pill--on' : 'status-pill status-pill--off'}>
