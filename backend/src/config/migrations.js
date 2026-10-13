@@ -8,6 +8,8 @@ const logger = require('../utils/logger');
 const ADDED_COLUMNS = [
   { table: 'users', column: 'department', definition: { type: DataTypes.STRING(100), allowNull: true } },
   { table: 'users', column: 'photo_updated_at', definition: { type: DataTypes.DATE, allowNull: true } },
+  // "View all departments" given to one user by an admin (Users page)
+  { table: 'users', column: 'view_all', definition: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false } },
   { table: 'departments', column: 'aliases', definition: { type: DataTypes.JSON, allowNull: true } },
   { table: 'departments', column: 'other_names', definition: { type: DataTypes.JSON, allowNull: true } },
   { table: 'departments', column: 'view_all', definition: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false } },

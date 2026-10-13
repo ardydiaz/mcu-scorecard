@@ -62,10 +62,11 @@ async function getUserForAccess(id) {
 }
 
 /**
- * Changes a user's role and/or active status. Admins can't change their own role or deactivate
- * themselves, and the last active admin can't be demoted or deactivated (nobody could manage users).
+ * Changes a user's role, active status and/or "View all departments". Admins can't change their own
+ * role or deactivate themselves, and the last active admin can't be demoted or deactivated (nobody
+ * could manage users).
  */
-async function updateUser(id, { role, isActive }, actingUser) {
+async function updateUser(id, { role, isActive, viewAll }, actingUser) {
   const user = await User.findByPk(id);
   if (!user) throw notFound();
 
@@ -79,7 +80,11 @@ async function updateUser(id, { role, isActive }, actingUser) {
     throw httpError(400, `${user.displayName || user.email} is the only active admin. Make someone else an admin first.`);
   }
 
-  await user.update({ ...(role !== undefined && { role }), ...(isActive !== undefined && { isActive }) });
+  await user.update({
+    ...(role !== undefined && { role }),
+    ...(isActive !== undefined && { isActive }),
+    ...(viewAll !== undefined && { viewAll }),
+  });
   return getUserById(id);
 }
 

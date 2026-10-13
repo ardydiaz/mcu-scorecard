@@ -27,6 +27,9 @@ async function update(req, res) {
   if (updated.isActive !== before.isActive) {
     await audit(req, updated.isActive ? 'user.reactivate' : 'user.deactivate', { target: updated.email });
   }
+  if (updated.viewAll !== before.viewAll) {
+    await audit(req, updated.viewAll ? 'user.view_all_grant' : 'user.view_all_remove', { target: updated.email });
+  }
   res.json(updated);
 }
 

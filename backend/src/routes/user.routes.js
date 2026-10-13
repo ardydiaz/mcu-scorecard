@@ -25,6 +25,7 @@ router.patch('/:id',
   idParam,
   body('role').optional().isIn(['admin', 'manager', 'user']),
   body('isActive').optional().isBoolean({ strict: true }),
+  body('viewAll').optional().isBoolean({ strict: true }),
   validate,
   users.update
 );

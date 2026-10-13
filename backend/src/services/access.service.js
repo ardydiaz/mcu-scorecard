@@ -2,7 +2,8 @@ const { canonicalCode, departmentAccess } = require('../config/departments');
 
 /**
  * What a user may see and change in the scorecard:
- *   canViewAll  admins and view-all departments (EXECOM) see every row; others see the rows
+ *   canViewAll  admins, view-all departments (EXECOM) and users given "View all departments" on the
+ *               Users page (user.viewAll) see every row; others see the rows
  *               they lead plus rows their access rules allow
  *   canEditAll  admins may edit any row
  *   editCodes   Lead codes whose rows the user may edit (their department codes, plus EVP/BOT/OP for EXECOM)
@@ -16,7 +17,7 @@ function accessFor(user, department) {
   const userCodes = (user.departments || []).map((d) => canonicalCode(d.code || d.name));
   const { viewAll, editCodes } = departmentAccess(userCodes);
   const canEditAll = user.role === 'admin';
-  const canViewAll = canEditAll || viewAll;
+  const canViewAll = canEditAll || viewAll || !!user.viewAll;
   const canFilterLead = canViewAll || user.role === 'manager';
   const narrow = !canViewAll && canFilterLead && department && userCodes.length ? canonicalCode(department) : null;
   const viewing = canViewAll ? (department ? [canonicalCode(department)] : null) : narrow ? [narrow] : userCodes;

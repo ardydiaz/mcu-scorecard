@@ -25,6 +25,8 @@ const ACTIONS = {
   'user.role_change': 'Changed role',
   'user.deactivate': 'Deactivated user',
   'user.reactivate': 'Reactivated user',
+  'user.view_all_grant': 'Granted view all departments',
+  'user.view_all_remove': 'Removed view all departments',
   'user.sync': 'Synced users from M365',
   'department.create': 'Created department',
   'department.update': 'Edited department',
