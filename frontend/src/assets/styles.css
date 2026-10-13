@@ -1184,6 +1184,7 @@ a.btn { text-decoration: none; }
   /* trend lines: validated categorical order for the light surface */
   --sb-series-1: #2a78d6; --sb-series-2: #eb6834; --sb-series-3: #1baf7a; --sb-series-4: #eda100;
   --sb-series-5: #e87ba4; --sb-series-6: #008300; --sb-series-7: #4a3aa7; --sb-series-8: #e34948; --sb-series-other: #a9a3b0;
+  --sb-persp-profitability: #1baf7a; --sb-persp-quality: #eb6834; --sb-persp-innovation: #eab308;
   --sb-tint: #f3ecf8;
 }
 

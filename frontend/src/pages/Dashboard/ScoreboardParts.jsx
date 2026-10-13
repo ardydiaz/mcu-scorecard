@@ -196,6 +196,13 @@ export function TierRing({ tier, projects, total, onOpen }) {
 const SERIES = 8; // validated categorical slots
 const seriesColor = (i) => (i < SERIES ? `var(--sb-series-${i + 1})` : 'var(--sb-series-other)');
 const fmtPct = (v) => (v === null || v === undefined ? '–' : `${Math.round(v)}%`);
+// Fixed colors for the perspectives (matched by name, so a perspective keeps its color in every file)
+const PERSPECTIVE_COLORS = [
+  [/profitab/i, 'var(--sb-persp-profitability)'],
+  [/quality/i, 'var(--sb-persp-quality)'],
+  [/innovat/i, 'var(--sb-persp-innovation)'],
+];
+const perspectiveColor = (name) => PERSPECTIVE_COLORS.find(([re]) => re.test(name))?.[1];
 
 export function TrendChart({ snapshots, selected, onSelect, onOpen }) {
   const [group, setGroup] = useState('persp');
@@ -223,6 +230,8 @@ export function TrendChart({ snapshots, selected, onSelect, onOpen }) {
   const fewLines = rows.length <= SERIES;
   let slot = 0;
   const colored = rows.map((r, i) => {
+    const fixed = group === 'persp' && perspectiveColor(r.key);
+    if (fixed) return { ...r, color: fixed, moved: movedKeys.has(r.key) };
     if (fewLines) return { ...r, color: seriesColor(i), moved: movedKeys.has(r.key) };
     const moved = movedKeys.has(r.key);
     return { ...r, color: moved ? seriesColor(slot++) : 'var(--sb-series-other)', moved };
