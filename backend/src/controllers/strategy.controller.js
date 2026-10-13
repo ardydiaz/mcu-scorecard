@@ -175,7 +175,9 @@ async function getScoreboard(req, res) {
 
 async function getMap(req, res) {
   const wb = await workbookFor(req);
-  const data = await scorecardService.getStrategyMap(wb, { sheet: req.query.sheet, refresh: req.query.refresh === '1' });
+  const user = await userService.getUserForAccess(req.user.id);
+  const { sheet, department, refresh } = req.query;
+  const data = await scorecardService.getStrategyMap(wb, user, { sheet, department, refresh: refresh === '1' });
   await auditView(req, 'Strategy Map summary', wb, data);
   res.json({ ...data, workbookId: wb.id });
 }

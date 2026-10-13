@@ -385,21 +385,41 @@ async function getScorecardForUser(wb, user, { sheet, department, refresh } = {}
   };
 }
 
-// Institution-wide view: perspectives and objectives with their KRAs and totals,
-// plus the Objective/Target list from the "Strategy Map" sheet when present.
-async function getStrategyMap(wb, { sheet, refresh } = {}) {
-  const sheetName = await resolveSheet(wb, sheet);
-  const scorecard = await loadScorecard(wb, sheetName, { refresh });
+// Lead codes of an objective's counted KPIs and projects (KPIs kept only as context don't count),
+// known departments first in registry order, then other codes A–Z
+function leadCodesOf(objective) {
+  const codes = new Set();
+  for (const k of objective.kras) for (const kpi of k.kpis) {
+    if (!kpi.contextOnly) kpi.lead.forEach((c) => codes.add(c));
+    kpi.projects.forEach((pr) => pr.lead.forEach((c) => codes.add(c)));
+  }
+  return departmentOptions(codes).map((d) => d.code);
+}
 
-  const perspectives = scorecard.perspectives.map((p) => ({
+// Summary view: perspectives and objectives with their KRAs and totals, counted from the rows the
+// user may see (their department's Lead rows; every row for view-all users, or the department
+// they picked in the Lead dropdown), plus the Objective/Target list from the "Strategy Map" sheet.
+async function getStrategyMap(wb, user, { sheet, department, refresh } = {}) {
+  const card = await getScorecardForUser(wb, user, { sheet, department, refresh });
+
+  const perspectives = card.perspectives.map((p) => ({
     name: p.name,
     objectives: p.objectives.map((o) => {
       const counts = countItems({ perspectives: [{ objectives: [o] }] });
-      return { name: o.name, kras: o.kras.map((k) => k.name), ...counts };
+      return { name: o.name, kras: o.kras.map((k) => k.name), leads: leadCodesOf(o), ...counts };
     }),
   }));
 
-  return { sheet: sheetName, perspectives, targets: await getMapTargets(wb) };
+  return {
+    sheet: card.sheet,
+    perspectives,
+    targets: await getMapTargets(wb),
+    canViewAll: card.canViewAll,
+    canFilterLead: card.canFilterLead,
+    viewingDepartments: card.viewingDepartments,
+    departments: card.departments,
+    counts: card.counts,
+  };
 }
 
 // Reads the Objective | Target list from the "Strategy Map" sheet

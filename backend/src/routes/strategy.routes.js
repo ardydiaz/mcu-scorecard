@@ -125,6 +125,11 @@ router.put('/grid/hidden-rows',
   validate,
   strategy.setHiddenRows
 );
-router.get('/map', sheetQuery, validate, strategy.getMap);
+router.get('/map',
+  sheetQuery,
+  query('department').optional().isString().trim().isLength({ min: 1, max: 20 }),
+  validate,
+  strategy.getMap
+);
 
 module.exports = router;
