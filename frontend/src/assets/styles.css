@@ -1265,8 +1265,6 @@ a.btn { text-decoration: none; }
 .sb-chip:hover { background: var(--sb-tint); }
 .sb-chip i { width: 9px; height: 9px; border-radius: 50%; }
 .sb-chip b { color: var(--text); }
-.sb-attn { width: 100%; margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border); color: var(--muted); font-size: 12.5px; line-height: 1.5; }
-.sb-attn b { color: #b4791f; }
 @media (max-width: 820px) { .sb-tiers { grid-template-columns: minmax(0, 1fr); } }
 
 /* 03 worth raising */

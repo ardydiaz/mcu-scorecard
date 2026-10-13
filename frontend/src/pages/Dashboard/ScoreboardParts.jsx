@@ -185,9 +185,6 @@ export function TierRing({ tier, projects, total, onOpen }) {
           </button>
         ))}
       </div>
-      {flagged.length > 0 && (
-        <div className="sb-attn"><b>Needs attention:</b> {flagged.map((d) => `${shortName(d.name)} (${d.status.toLowerCase()})`).join(', ')}</div>
-      )}
     </div>
   );
 }
