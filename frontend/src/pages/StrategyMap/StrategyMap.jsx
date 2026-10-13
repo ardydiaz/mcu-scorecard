@@ -303,11 +303,11 @@ export default function StrategyMap() {
           onChange={(id) => update({ workbook: id, sheet: '', department: '' })}
         />
         <SheetSelect sheets={sheetList} value={sheet} onChange={(name) => update({ sheet: name, department: '' })} />
-        {grid?.canViewAll && (
+        {(grid?.canFilterLead ?? grid?.canViewAll) && grid.departments?.length > 0 && (
           <label className="field">
             <span className="field__label">Lead</span>
             <select className="input" value={department} onChange={(e) => update({ department: e.target.value })}>
-              <option value="">All departments</option>
+              <option value="">{grid.canViewAll ? 'All departments' : 'All my rows'}</option>
               {grid.departments.map((d) => (
                 <option key={d.code} value={d.code}>{d.name ? `${d.code} – ${d.name}` : d.code}</option>
               ))}

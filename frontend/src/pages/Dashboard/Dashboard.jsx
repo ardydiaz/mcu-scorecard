@@ -96,11 +96,11 @@ export default function Dashboard() {
         <WorkbookSelect workbooks={files.workbooks} value={workbook}
           onChange={(id) => updateParams({ workbook: id, sheet: '', department: '', asof: '' })} />
         <SheetSelect sheets={sheets.data || []} value={data?.sheet || sheet} onChange={(name) => updateParams({ sheet: name, asof: '' })} />
-        {data?.canViewAll && (
+        {(data?.canFilterLead ?? data?.canViewAll) && data.departments?.length > 0 && (
           <label className="field">
             <span className="field__label">Lead</span>
             <select className="input" value={department} onChange={(e) => updateParams({ department: e.target.value })}>
-              <option value="">All departments</option>
+              <option value="">{data.canViewAll ? 'All departments' : 'All my rows'}</option>
               {data.departments.map((d) => <option key={d.code} value={d.code}>{d.name ? `${d.code} – ${d.name}` : d.code}</option>)}
             </select>
           </label>
