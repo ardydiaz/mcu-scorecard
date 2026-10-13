@@ -30,7 +30,7 @@ function summarySheet(data) {
   for (const p of data.perspectives) {
     p.objectives.forEach((o, i) => {
       rows.push({
-        cells: [p.name, o.name, o.kras.join('\n'), o.kpis, o.projects],
+        cells: [p.name, o.name, o.kras.join('\n'), (o.leads || []).join(', '), o.kpis, o.projects],
         bold: [0, 1],
         inherited: i > 0 ? [0] : [],
       });
@@ -39,12 +39,13 @@ function summarySheet(data) {
     });
   }
   const objectives = rows.length;
-  rows.push({ cells: ['Total', `${objectives} objectives`, '', kpis, projects], total: true });
+  rows.push({ cells: ['Total', `${objectives} objectives`, '', '', kpis, projects], total: true });
 
   return buildSheet(SUMMARY_TAB, [
     { label: 'Perspectives', width: 18 },
     { label: 'Objectives', width: 30 },
     { label: 'Key Result Areas', width: 48 },
+    { label: 'Lead', width: 22 },
     { label: 'KPIs', width: 10, center: true },
     { label: 'Projects', width: 10, center: true },
   ], rows);
@@ -57,9 +58,11 @@ function targetsSheet(data) {
   ], data.targets.map((t) => ({ cells: [t.objective, t.targets.join('\n')], bold: [0] })));
 }
 
-// Summary of a scorecard sheet, shown as read-only Excel-style sheets (switch with the tabs)
-function MapSummary({ workbookId, sheet }) {
-  const { data, loading, error } = useStrategyMap({ workbook: workbookId, sheet });
+// Summary of a scorecard sheet, shown as read-only Excel-style sheets (switch with the tabs).
+// Counts only the rows the user may see: their department's Lead rows, or every department for
+// view-all users (or the department picked in the Lead filter). Data is loaded by the page.
+function MapSummary({ summaryState }) {
+  const { data, loading, error } = summaryState;
   const [tab, setTab] = useState(SUMMARY_TAB);
   const sheets = useMemo(() => (data ? { [SUMMARY_TAB]: summarySheet(data), [TARGETS_TAB]: targetsSheet(data) } : null), [data]);
 
@@ -67,15 +70,29 @@ function MapSummary({ workbookId, sheet }) {
   if (error) return <ErrorMessage>{error}</ErrorMessage>;
   if (!sheets) return null;
 
+  const viewing = data.viewingDepartments || [];
+  if (!data.canViewAll && viewing.length === 0) {
+    return (
+      <div className="alert alert--info">
+        Your account is not linked to a department yet, so there is nothing to summarize. Ask the ICT office to set your
+        Department in Microsoft 365.
+      </div>
+    );
+  }
+  if (data.perspectives.length === 0) {
+    return <p className="muted">No rows in “{data.sheet}” have {viewing.join(', ')} as Lead.</p>;
+  }
+
   const tabs = [
     { id: 'summary', name: SUMMARY_TAB, tabColor: '#107C41' },
     ...(data.targets.length ? [{ id: 'targets', name: TARGETS_TAB, tabColor: '#7030A0' }] : []),
   ];
+  const scope = viewing.length ? `rows led by ${viewing.join(', ')}` : 'all departments';
 
   return (
     <div className="sheet-view">
       <p className="muted sheet-view__help">
-        Summary of “{data.sheet}”. Totals are calculated from the scorecard sheet; edit the data in the Excel tab.
+        Summary of “{data.sheet}” for <strong>{scope}</strong>. Totals are calculated from the scorecard sheet; edit the data in the Excel tab.
       </p>
       <SheetGrid grid={sheets[tab]} sheets={tabs} onSheetChange={setTab} />
     </div>
@@ -275,6 +292,10 @@ export default function StrategyMap() {
   const showGrid = !listsLoading && view === 'excel' && !!sheet;
   const gridState = useSheetGrid({ workbook: workbookId, sheet: showGrid ? sheet : '', department });
   const grid = showGrid && gridState.data?.supported ? gridState.data : null;
+  const showSummary = !listsLoading && view === 'summary' && !!sheet;
+  const summaryState = useStrategyMap({ workbook: workbookId, sheet: showSummary ? sheet : '', department });
+  // The Lead filter follows whichever view is shown (both answer with the same access fields)
+  const filterData = view === 'summary' ? (showSummary ? summaryState.data : null) : grid;
 
   return (
     <div className="page">
@@ -303,23 +324,23 @@ export default function StrategyMap() {
           onChange={(id) => update({ workbook: id, sheet: '', department: '' })}
         />
         <SheetSelect sheets={sheetList} value={sheet} onChange={(name) => update({ sheet: name, department: '' })} />
-        {(grid?.canFilterLead ?? grid?.canViewAll) && grid.departments?.length > 0 && (
+        {(filterData?.canFilterLead ?? filterData?.canViewAll) && filterData.departments?.length > 0 && (
           <label className="field">
             <span className="field__label">Lead</span>
             <select className="input" value={department} onChange={(e) => update({ department: e.target.value })}>
-              <option value="">{grid.canViewAll ? 'All departments' : 'All my rows'}</option>
-              {grid.departments.map((d) => (
+              <option value="">{filterData.canViewAll ? 'All departments' : 'All my rows'}</option>
+              {filterData.departments.map((d) => (
                 <option key={d.code} value={d.code}>{d.name ? `${d.code} – ${d.name}` : d.code}</option>
               ))}
             </select>
           </label>
         )}
-        {showGrid && (
+        {(showGrid || showSummary) && (
           <button
             type="button"
             className="btn btn--ghost"
-            onClick={() => gridState.reload(true)}
-            disabled={gridState.loading}
+            onClick={() => (showGrid ? gridState : summaryState).reload(true)}
+            disabled={(showGrid ? gridState : summaryState).loading}
           >
             Refresh from Excel
           </button>
@@ -339,7 +360,7 @@ export default function StrategyMap() {
           onSheetChange={(name) => update({ sheet: name, department: '' })}
         />
       )}
-      {!listsLoading && view === 'summary' && sheet && <MapSummary workbookId={workbookId} sheet={sheet} />}
+      {showSummary && <MapSummary summaryState={summaryState} />}
     </div>
   );
 }

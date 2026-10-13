@@ -95,7 +95,9 @@ export async function getScoreboard({ workbook, sheet, department, refresh } = {
   return data;
 }
 
-export async function getStrategyMap({ workbook, sheet } = {}) {
-  const { data } = await api.get('/strategy/map', { params: { workbook: workbook || undefined, sheet: sheet || undefined } });
+export async function getStrategyMap({ workbook, sheet, department, refresh } = {}) {
+  const { data } = await api.get('/strategy/map', {
+    params: { workbook: workbook || undefined, sheet: sheet || undefined, department: department || undefined, refresh: refresh ? 1 : undefined },
+  });
   return data;
 }

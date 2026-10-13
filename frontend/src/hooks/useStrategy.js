@@ -101,6 +101,10 @@ export function useScoreboard({ workbook, sheet, department }) {
   return useAsync((refresh) => getScoreboard({ workbook, sheet, department, refresh }), [workbook, sheet, department]);
 }
 
-export function useStrategyMap({ workbook, sheet }) {
-  return useAsync(() => getStrategyMap({ workbook, sheet }), [workbook, sheet]);
+// Summary counts for the rows the user may see; no request while `sheet` is empty
+export function useStrategyMap({ workbook, sheet, department }) {
+  return useAsync(
+    (refresh) => (sheet ? getStrategyMap({ workbook, sheet, department, refresh }) : Promise.resolve(null)),
+    [workbook, sheet, department]
+  );
 }
