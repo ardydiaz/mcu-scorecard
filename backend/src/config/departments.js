@@ -107,12 +107,22 @@ function departmentAccess(codes) {
   };
 }
 
+// Names for Lead codes that aren't departments of their own (EXECOM's extra Lead codes)
+const LEAD_CODE_NAMES = {
+  BOT: 'Board of Trustees',
+  EVP: 'Executive Vice President',
+  OP: 'Office of the President',
+};
+
 // Options for a "filter by Lead" dropdown: the known departments among `leadCodes` (with names)
-// first, then any other codes found in the Lead column
+// first, then any other codes found in the Lead column. "LEAD" is the column's own header text
+// (e.g. a repeated header row), not a department, so it's left out.
 function departmentOptions(leadCodes) {
   const codes = new Set(leadCodes);
+  codes.delete('LEAD');
   const known = departments.filter((d) => codes.has(d.code)).map(({ code, name }) => ({ code, name }));
-  const others = [...codes].filter((c) => !departments.some((d) => d.code === c)).sort().map((code) => ({ code, name: '' }));
+  const others = [...codes].filter((c) => !departments.some((d) => d.code === c)).sort()
+    .map((code) => ({ code, name: LEAD_CODE_NAMES[code] || '' }));
   return [...known, ...others];
 }
 
