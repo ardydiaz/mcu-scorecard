@@ -5,6 +5,21 @@ import SheetRibbon from './SheetRibbon';
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const ZOOM_STEPS = [50, 60, 70, 80, 90, 100, 110, 125, 150];
 const ZOOM_KEY = 'mcu-scorecard-grid-zoom';
+// Column widths the user set by dragging a column letter's edge (this browser only), per file and sheet
+const WIDTHS_KEY = 'mcu-scorecard-grid-widths';
+const MIN_COL_PX = 24;
+const widthsStoreKey = (grid) => `${grid.workbookId || ''}::${grid.sheet}`;
+function readWidths(grid) {
+  try { return JSON.parse(localStorage.getItem(WIDTHS_KEY) || '{}')[widthsStoreKey(grid)] || {}; } catch { return {}; }
+}
+function saveWidths(grid, widths) {
+  try {
+    const all = JSON.parse(localStorage.getItem(WIDTHS_KEY) || '{}');
+    if (Object.keys(widths).length) all[widthsStoreKey(grid)] = widths;
+    else delete all[widthsStoreKey(grid)];
+    localStorage.setItem(WIDTHS_KEY, JSON.stringify(all));
+  } catch { /* storage unavailable: widths last until the page is reloaded */ }
+}
 const UNDO_LIMIT = 100; // most recent changes kept for Ctrl+Z
 
 // The formatting that puts back `before` (a cell style) for the options a change touched
@@ -198,6 +213,9 @@ export default function SheetGrid({
   // The user's own column order (column keys), or null for the sheet's order; changed by dragging letters
   const [colOrder, setColOrder] = useState(grid.columnOrder || null);
   const [drag, setDrag] = useState(null); // { from: grid column, to: grid column, side: 'left' | 'right' }
+  // The user's own column widths in px at 100% zoom, by column key (dragging a letter's right edge)
+  const [colWidths, setColWidths] = useState(() => readWidths(grid));
+  const resizing = useRef(null); // { key, startX, startWidth } while a column edge is dragged
   const [listOpen, setListOpen] = useState(false); // the selected cell's dropdown list (Excel data validation) is open
   // Local copy of the workbook's style table; formatting done here adds styles to it
   const [styles, setStyles] = useState(format?.styles || []);
@@ -238,6 +256,7 @@ export default function SheetGrid({
     setRows(grid.rows);
     setHiddenKeys(new Set(grid.hiddenKeys || []));
     setColOrder(grid.columnOrder || null);
+    setColWidths(readWidths(grid));
     setCopied(null);
     setRowMenu(null);
     setHistory({ undo: [], redo: [] });
@@ -307,7 +326,47 @@ export default function SheetGrid({
     if (!dd?.strict || !text) return value;
     return dd.list.find((item) => item.toLowerCase() === text.toLowerCase()) ?? null;
   };
-  const widthOf = (i) => colPx(format?.columns[i]?.width ?? format?.defaultColWidth) * zoom;
+  const fileWidthOf = (i) => colPx(format?.columns[i]?.width ?? format?.defaultColWidth);
+  const widthOf = (h) => (colWidths[h.key] ?? fileWidthOf(h.index)) * zoom;
+
+  // Drag a column letter's right edge to change its width in this view (like Excel); double-click
+  // the edge to go back to the Excel file's width
+  function startResize(e, h) {
+    e.preventDefault();
+    e.stopPropagation();
+    resizing.current = { key: h.key, startX: e.clientX, startWidth: colWidths[h.key] ?? fileWidthOf(h.index) };
+    document.body.classList.add('xl-resizing');
+    const onMove = (ev) => {
+      const r = resizing.current;
+      if (!r) return;
+      const width = Math.max(MIN_COL_PX, Math.round(r.startWidth + (ev.clientX - r.startX) / zoom));
+      setColWidths((w) => (w[r.key] === width ? w : { ...w, [r.key]: width }));
+    };
+    const onUp = () => {
+      resizing.current = null;
+      document.body.classList.remove('xl-resizing');
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      setColWidths((w) => { saveWidths(grid, w); return w; });
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+  function resetWidth(e, h) {
+    e.preventDefault();
+    e.stopPropagation();
+    setColWidths((w) => {
+      const { [h.key]: _removed, ...rest } = w;
+      saveWidths(grid, rest);
+      return rest;
+    });
+  }
+  function resetAllWidths() {
+    setColWidths({});
+    saveWidths(grid, {});
+    setColMenu(null);
+  }
+  const customWidths = cols.some((h) => colWidths[h.key] !== undefined);
   const rowHeightOf = (row) => ptPx(row.height || format?.defaultRowHeight || DEFAULT_HEIGHT_PT) * zoom;
   const headerHeight = ptPx(format?.headerHeight || 30) * zoom;
 
@@ -1179,6 +1238,9 @@ export default function SheetGrid({
           {customOrder && onColumnOrder && (
             <button type="button" role="menuitem" onClick={resetColumnOrder}>Reset column order</button>
           )}
+          {customWidths && (
+            <button type="button" role="menuitem" onClick={resetAllWidths}>Reset column widths</button>
+          )}
           {grid.canDeleteColumns && (
             <button type="button" role="menuitem" className="xl-context__danger" disabled={!!saving} onClick={deleteColumn}>
               Delete column {cols[colMenu.c]?.letter}
@@ -1247,7 +1309,7 @@ export default function SheetGrid({
         <table className={format?.showGridLines === false ? 'xl-grid xl-grid--nolines' : 'xl-grid'}>
           <colgroup>
             <col style={{ width: 44 }} />
-            {cols.map((h) => <col key={h.letter} style={{ width: widthOf(h.index) }} />)}
+            {cols.map((h) => <col key={h.letter} style={{ width: widthOf(h) }} />)}
           </colgroup>
           <thead>
             <tr className="xl-letters">
@@ -1262,7 +1324,10 @@ export default function SheetGrid({
                     drag && drag.to === c && drag.from !== c && `xl-letter--drop-${drag.side}`,
                   ].filter(Boolean).join(' ')}
                   draggable={!!onColumnOrder && !editing}
-                  onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', h.letter); setDrag({ from: c, to: null, side: 'left' }); }}
+                  onDragStart={(e) => {
+                    if (resizing.current) { e.preventDefault(); return; }
+                    e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', h.letter); setDrag({ from: c, to: null, side: 'left' });
+                  }}
                   onDragOver={(e) => {
                     if (!drag) return;
                     e.preventDefault();
@@ -1277,6 +1342,14 @@ export default function SheetGrid({
                   onContextMenu={(e) => openColMenu(e, c)}
                 >
                   {h.letter}
+                  <span
+                    className="xl-col-resize"
+                    title={`Drag to change the width of column ${h.letter} (your view only). Double-click to reset.`}
+                    onMouseDown={(e) => { if (e.button === 0) startResize(e, h); }}
+                    onDoubleClick={(e) => resetWidth(e, h)}
+                    onDragStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    draggable={false}
+                  />
                 </th>
               ))}
             </tr>

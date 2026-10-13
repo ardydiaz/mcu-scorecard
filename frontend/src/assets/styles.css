@@ -1740,3 +1740,14 @@ a.btn { text-decoration: none; }
 .switch input:disabled + .switch__track { opacity: 0.5; }
 .switch__label { color: var(--muted); font-size: 13px; font-weight: 600; }
 .switch input:checked ~ .switch__label { color: var(--purple-haze); }
+
+/* Column width: drag the right edge of a column letter (like Excel); double-click resets it */
+.xl-col-resize {
+  position: absolute; top: 0; right: 0; bottom: 0; z-index: 3; width: 7px; cursor: col-resize;
+}
+.xl-col-resize::after {
+  content: ''; position: absolute; top: 3px; bottom: 3px; right: 0; width: 3px; border-radius: 2px; background: transparent; transition: background 0.12s;
+}
+.xl-col-resize:hover::after, .xl-resizing .xl-col-resize:active::after { background: #107c41; }
+/* While resizing: keep the resize cursor everywhere and don't select text */
+body.xl-resizing, body.xl-resizing * { cursor: col-resize !important; user-select: none !important; }
