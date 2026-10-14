@@ -8,4 +8,4 @@ require('./AccessRule');
 require('./HiddenRow');
 require('./Workbook');
 require('./UserPhoto');
-require('./ColumnOrder');
+// (column_orders, from the removed "drag columns in your view" feature, is no longer used)

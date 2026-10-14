@@ -1,4 +1,4 @@
-const { getUsedRange, insertColumn, deleteColumn, writeCell } = require('./excel.service');
+const { getUsedRange, insertColumn, deleteColumn, writeCell, readRange, getColumnWidth, moveColumnCopy } = require('./excel.service');
 const { listVisibleSheets, mapColumns, columnLetter, oneLine, cellReader, invalidateScorecard } = require('./scorecard.service');
 const { analyzeSheet, letterToIndex } = require('./grid.service');
 const formatService = require('./format.service');
@@ -9,6 +9,7 @@ const logger = require('../utils/logger');
  *   insert  (everyone)  an empty column left or right of a column, with a header name
  *   update  (everyone)  a new weekly update column dated today, left of the newest update
  *   delete  (admins)    a whole column; the scorecard's key columns can't be deleted
+ *   move    (everyone)  a column to another place (dragging its letter); key columns stay put
  * A column runs through every department's rows, so each change is recorded in the audit log.
  */
 
@@ -153,6 +154,118 @@ async function deleteColumnForUser(wb, user, { sheet, column, expectedHeader, co
   };
 }
 
+// A cached cell style (format.service) as a full format for excel.service, so every property is set
+// (the new column starts with the formatting of the column on its left)
+function styleToFormat(s) {
+  const style = s || {};
+  return {
+    bold: !!style.bold,
+    italic: !!style.italic,
+    underline: !!style.underline,
+    ...(style.font && { fontName: style.font }),
+    ...(style.size && { fontSize: style.size }),
+    fontColor: style.color || '#000000',
+    fillColor: style.bg || null,
+    hAlign: ['left', 'center', 'right'].includes(style.h) ? style.h : 'general',
+    vAlign: style.v === 'top' ? 'top' : style.v === 'middle' ? 'middle' : 'bottom',
+    wrap: !!style.wrap,
+  };
+}
+
+/**
+ * Moves a column to another place in the Excel file, like dragging it in Excel: `column` goes to the
+ * `side` ('left' | 'right') of `target`. Graph can't move columns, so excel.service copies it into a
+ * new column, checks the copy and only then deletes the original (see moveColumnCopy).
+ * Refused, so nothing is lost: the scorecard's key columns, and columns with formulas, merged cells
+ * that reach other columns, or dropdowns / color rules that wouldn't follow the move.
+ */
+async function moveColumnForUser(wb, user, { sheet, column, target, side = 'left', expectedHeader, expectedTarget, confirm = false }) {
+  const ctx = await load(wb, sheet);
+  checkExpected(ctx, column, expectedHeader);
+  checkExpected(ctx, target, expectedTarget);
+  const { layout, range } = ctx;
+  const from = letterToIndex(column); // 0-based sheet column
+  const insertAt = letterToIndex(target) + (side === 'right' ? 1 : 0);
+  const name = ctx.header(from) || `column ${column}`;
+  if (insertAt === from || insertAt === from + 1) throw httpError(400, `"${name}" is already there.`);
+
+  const rel = from - layout.firstCol;
+  const key = Object.entries(layout.columns).find(([k, i]) => i === rel && PROTECTED.includes(k))?.[0];
+  if (key) throw httpError(400, `"${PROTECTED_LABELS[key]}" is a key column of the scorecard, so it stays in place. Move the other columns around it instead.`);
+  const formula = range.formulas?.findIndex((row, r) => typeof row[rel] === 'string' && row[rel].startsWith('=') && row[rel] !== range.values[r][rel]);
+  if (formula !== undefined && formula !== -1) {
+    throw httpError(422, `"${name}" contains formulas (e.g. ${column}${layout.firstRow + formula}), which can't be moved safely here. Move it in Excel instead.`);
+  }
+
+  // The sheet's formatting as the system keeps it (read from the file, kept up to date with edits made
+  // here, and re-read every 15 minutes): downloading the whole file again would add seconds to every move
+  const format = await formatService.getSheetFormat(wb, sheet);
+  if (!format) throw httpError(503, 'The Excel formatting could not be read, so the column was not moved. Try again in a moment.');
+  const S = from + 1; // 1-based, as in the cached areas
+  const T = insertAt + 1;
+  const covers = (a, c) => a.left <= c && a.right >= c;
+  if ((format.merges || []).some((m) => covers(m, S) && m.left !== m.right)) {
+    throw httpError(422, `"${name}" has merged cells that reach into other columns. Unmerge them first, or move the column in Excel.`);
+  }
+  if ((format.merges || []).some((m) => m.left !== m.right && m.left < T && m.right >= T)) {
+    throw httpError(422, 'The new place is inside merged cells. Pick another place, or unmerge them first.');
+  }
+  const follows = (a) => a.left < T && a.right >= T; // a wider area the new column lands inside
+  // Graph can't copy dropdown lists or color rules, so the moved column would lose them. They are often
+  // left over from inserting a column next to Traffic Light (Excel copies them from the left), so the
+  // user may move it anyway once warned (`confirm`).
+  const lost = [
+    (format.dropdowns || []).some((g) => g.areas.some((a) => covers(a, S) && !follows(a))) && 'dropdown list',
+    (format.conditional || []).some((g) => g.areas.some((a) => covers(a, S) && !follows(a))) && 'color rules',
+  ].filter(Boolean);
+  if (lost.length && !confirm) {
+    throw httpError(409, `"${name}" has ${lost.join(' and ')} (for example copied from the Traffic Light column). They can't be moved with the column, so the moved column won't have them.`, {
+      code: 'CONFIRM_DROP_RULES', header: name, lost,
+    });
+  }
+
+  const firstRow = layout.firstRow;
+  const lastRow = firstRow + range.values.length - 1;
+  const source = `${column}${firstRow}:${column}${lastRow}`;
+  const [{ numberFormat }, width] = await Promise.all([readRange(wb, sheet, source, 'numberFormat'), getColumnWidth(wb, sheet, column)]);
+  // Text that looks like a formula is written as text (with Excel's leading apostrophe)
+  const values = range.values.map((row) => {
+    const v = row[rel] ?? '';
+    return [typeof v === 'string' && /^[=+\-@]/.test(v) ? `'${v}` : v];
+  });
+
+  // Formatting as runs of rows with the same style: the most common style for the whole block,
+  // then only the runs that differ from it
+  const styleIds = Array.from({ length: lastRow - firstRow + 1 }, (_, i) => format.cells[firstRow + i]?.[from] ?? null);
+  const counts = new Map();
+  styleIds.forEach((id) => counts.set(id, (counts.get(id) || 0) + 1));
+  const base = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  const formats = [{ top: firstRow, bottom: lastRow, format: styleToFormat(format.styles[base]) }];
+  for (let i = 0; i < styleIds.length;) {
+    let j = i;
+    while (j + 1 < styleIds.length && styleIds[j + 1] === styleIds[i]) j++;
+    if (styleIds[i] !== base) formats.push({ top: firstRow + i, bottom: firstRow + j, format: styleToFormat(format.styles[styleIds[i]]) });
+    i = j + 1;
+  }
+  const merges = (format.merges || []).filter((m) => m.left === S && m.right === S).map((m) => ({ top: m.top, bottom: m.bottom }));
+
+  const newLetter = columnLetter(insertAt);
+  const sourceAfter = columnLetter(insertAt <= from ? from + 1 : from);
+  await moveColumnCopy(wb, sheet, { insertAt: newLetter, sourceAfter, firstRow, lastRow, values, numberFormat, width, formats, merges });
+
+  invalidateScorecard(wb, sheet);
+  formatService.moveColumn(wb, sheet, from, insertAt);
+  const finalLetter = columnLetter(insertAt > from ? insertAt - 1 : insertAt);
+  logger.info(`${user.email} moved column ${column} "${name}" to ${finalLetter} (${side} of ${target}) in ${wb.name} / ${sheet}`);
+  return {
+    column: finalLetter,
+    change: {
+      target: `${sheet}!${finalLetter}:${finalLetter}`,
+      details: { workbook: wb.name, header: name, from: column, to: finalLetter, position: `${side} of ${target} "${ctx.header(letterToIndex(target))}"` },
+    },
+  };
+}
+
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 
 // A header typed as a date ("21-Sep-26", "Sep 21, 2026", "21 September 2026", "2026-09-21") -> Excel
@@ -211,4 +324,4 @@ async function renameColumnForUser(wb, user, { sheet, column, header, expectedHe
   };
 }
 
-module.exports = { insertColumnForUser, addUpdateColumnForUser, deleteColumnForUser, renameColumnForUser };
+module.exports = { insertColumnForUser, addUpdateColumnForUser, deleteColumnForUser, renameColumnForUser, moveColumnForUser, styleToFormat };

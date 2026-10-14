@@ -95,25 +95,20 @@ router.post('/grid/paste',
   validate,
   strategy.pasteGridCells
 );
-// Insert a column / add today's update column (everyone), delete a column (admins; checked in column.service)
+// Insert a column / add today's update column / move a column (everyone), delete or rename a column
+// (admins; checked in column.service)
 router.post('/grid/columns',
   body('sheet').isString().trim().isLength({ min: 1, max: 100 }),
-  body('action').isIn(['insert', 'update', 'delete', 'rename']),
-  body('column').if(body('action').isIn(['insert', 'delete', 'rename'])).isString().matches(/^[A-Z]{1,3}$/),
+  body('action').isIn(['insert', 'update', 'delete', 'rename', 'move']),
+  body('column').if(body('action').isIn(['insert', 'delete', 'rename', 'move'])).isString().matches(/^[A-Z]{1,3}$/),
+  body('target').if(body('action').equals('move')).isString().matches(/^[A-Z]{1,3}$/),
+  body('expectedTarget').optional().isString().isLength({ max: 500 }),
   body('side').optional().isIn(['left', 'right']),
   body('header').if(body('action').isIn(['insert', 'rename'])).isString().trim().isLength({ min: 1, max: 100 }),
   body('expectedHeader').optional().isString().isLength({ max: 500 }),
   body('confirm').optional().isBoolean({ strict: true }),
   validate,
   strategy.changeGridColumns
-);
-// Personal column order in the user's own view (null resets it)
-router.put('/grid/column-order',
-  body('sheet').isString().trim().isLength({ min: 1, max: 100 }),
-  body('columns').optional({ values: 'null' }).isArray({ max: 300 }),
-  body('columns.*').optional().isString().isLength({ max: 300 }),
-  validate,
-  strategy.setColumnOrder
 );
 // Personal "hide rows" in the user's own view
 router.put('/grid/hidden-rows',

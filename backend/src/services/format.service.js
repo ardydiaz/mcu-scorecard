@@ -145,4 +145,38 @@ function shiftColumns(wb, sheetName, col, delta) {
   });
 }
 
-module.exports = { getSheetFormat, getTabColor, updateCachedStyle, updateCachedMerge, warmUp, forget, shiftColumns };
+/**
+ * After a column was moved in the file (0-based `from`, inserted before 0-based `insertAt` in the
+ * sheet's original order), moves its cached formatting the same way: widths, cell styles, merged
+ * areas, color rules and dropdown areas.
+ */
+function moveColumn(wb, sheetName, from, insertAt) {
+  const sheet = sheetOf(wb, sheetName);
+  if (!sheet) return;
+  const to = insertAt > from ? insertAt - 1 : insertAt; // the column's final 0-based index
+  // New 0-based index of each column after the move
+  const map = (c) => {
+    if (c === from) return to;
+    if (from < to && c > from && c <= to) return c - 1;
+    if (to < from && c >= to && c < from) return c + 1;
+    return c;
+  };
+  const moveIn = (arr) => {
+    if (!Array.isArray(arr) || from >= arr.length) return;
+    const [item] = arr.splice(from, 1);
+    arr.splice(Math.min(to, arr.length), 0, item);
+  };
+  moveIn(sheet.columns);
+  for (const row of Object.keys(sheet.cells || {})) moveIn(sheet.cells[row]);
+  // Areas are 1-based { left, right }: a single-column area moves with its column; wider areas keep
+  // their span (moves are refused when they would split one)
+  const moveArea = (a) => {
+    if (a.left === a.right) { const c = map(a.left - 1) + 1; return { ...a, left: c, right: c }; }
+    const left = Math.min(map(a.left - 1), map(a.right - 1)) + 1;
+    return { ...a, left, right: left + (a.right - a.left) };
+  };
+  sheet.merges = (sheet.merges || []).map(moveArea);
+  for (const group of [...(sheet.conditional || []), ...(sheet.dropdowns || [])]) group.areas = group.areas.map(moveArea);
+}
+
+module.exports = { getSheetFormat, getTabColor, updateCachedStyle, updateCachedMerge, warmUp, forget, shiftColumns, moveColumn };

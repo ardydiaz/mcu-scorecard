@@ -20,6 +20,7 @@ const ACTIONS = {
   'sheet.column_insert': 'Inserted column',
   'sheet.column_delete': 'Deleted column',
   'sheet.column_rename': 'Renamed column',
+  'sheet.column_move': 'Moved column',
   'sheet.edit_denied': 'Edit refused',
   'audit.export': 'Exported audit log',
   'user.role_change': 'Changed role',

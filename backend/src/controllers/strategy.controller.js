@@ -8,7 +8,6 @@ const { audit } = require('../services/audit.service');
 const hiddenRowService = require('../services/hiddenRow.service');
 const scoreboardService = require('../services/scoreboard.service');
 const columnService = require('../services/column.service');
-const columnOrderService = require('../services/columnOrder.service');
 
 // The scorecard file this request works on (?workbook= or body.workbook; default file when absent)
 const workbookFor = (req) => workbookService.resolveWorkbook(req.query.workbook ?? req.body?.workbook, req.user);
@@ -54,8 +53,6 @@ async function getGrid(req, res) {
   if (data.supported) {
     // Rows this user chose to hide in their own view (personal setting)
     data.hiddenKeys = await hiddenRowService.getHiddenKeys(user.id, wb.id, data.sheet);
-    // The user's own column order (dragging column letters), or null for the sheet's order
-    data.columnOrder = await columnOrderService.getColumnOrder(user.id, wb.id, data.sheet);
     // Everyone may insert columns; deleting one is for admins (see column.service)
     data.canInsertColumns = true;
     data.canDeleteColumns = user.role === 'admin';
@@ -63,14 +60,6 @@ async function getGrid(req, res) {
     await auditView(req, 'Excel grid', wb, data, { rows: data.rows.length });
   }
   res.json(data);
-}
-
-// Saves the user's own column order for a sheet (null = back to the sheet's order); the Excel file isn't changed
-async function setColumnOrder(req, res) {
-  const wb = await workbookFor(req);
-  const { sheet, columns } = req.body;
-  const saved = await columnOrderService.setColumnOrder(req.user.id, wb.id, sheet, columns || null);
-  res.json({ workbookId: wb.id, sheet, columnOrder: saved });
 }
 
 // Hides / unhides rows in the user's own view of a sheet (doesn't change the Excel file)
@@ -140,15 +129,16 @@ async function pasteGridCells(req, res) {
 async function changeGridColumns(req, res) {
   const wb = await workbookFor(req);
   const user = await userService.getUserForAccess(req.user.id);
-  const { sheet, action, column, side, header, expectedHeader, confirm } = req.body;
+  const { sheet, action, column, side, header, expectedHeader, confirm, target, expectedTarget } = req.body;
   const run = {
     insert: () => columnService.insertColumnForUser(wb, user, { sheet, column, side, header, expectedHeader }),
     update: () => columnService.addUpdateColumnForUser(wb, user, { sheet }),
     delete: () => columnService.deleteColumnForUser(wb, user, { sheet, column, expectedHeader, confirm }),
     rename: () => columnService.renameColumnForUser(wb, user, { sheet, column, header, expectedHeader }),
+    move: () => columnService.moveColumnForUser(wb, user, { sheet, column, target, side, expectedHeader, expectedTarget, confirm }),
   }[action];
   const { change, ...result } = await withDeniedAudit(req, wb, `column ${action}`, run);
-  await audit(req, { delete: 'sheet.column_delete', rename: 'sheet.column_rename' }[action] || 'sheet.column_insert', change);
+  await audit(req, { delete: 'sheet.column_delete', rename: 'sheet.column_rename', move: 'sheet.column_move' }[action] || 'sheet.column_insert', change);
   res.json(result);
 }
 
@@ -183,5 +173,5 @@ async function getMap(req, res) {
 }
 
 module.exports = {
-  listWorkbooks, listSheets, getWorkbook, getScoreboard, getGrid, setHiddenRows, setColumnOrder, updateGridCell, formatGridCell, mergeGridCells, changeGridColumns, pasteGridCells, getMap,
+  listWorkbooks, listSheets, getWorkbook, getScoreboard, getGrid, setHiddenRows, updateGridCell, formatGridCell, mergeGridCells, changeGridColumns, pasteGridCells, getMap,
 };

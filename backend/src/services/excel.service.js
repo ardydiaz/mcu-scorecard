@@ -195,8 +195,19 @@ const V_ALIGN = { top: 'Top', middle: 'Center', bottom: 'Bottom' };
  * Graph keeps font, fill and alignment as separate resources, so only the changed ones are sent.
  */
 async function writeCellFormat(wb, sheetName, address, format) {
-  const base = `${sheetPath(wb, sheetName)}/range(address='${address}')/format`;
+  await write(wb, sheetName, (api) => applyFormat(api, `${sheetPath(wb, sheetName)}/range(address='${address}')/format`, format));
+}
 
+// Sends `format` (see writeCellFormat) to a range's format resource, `base` = ".../range(address='…')/format"
+async function applyFormat(api, base, format) {
+  for (const r of formatRequests(base, format)) {
+    if (r.method === 'PATCH') await api(r.url).patch(r.body);
+    else await api(r.url).post(r.body);
+  }
+}
+
+// The Graph requests that apply `format` to `base` (font, fill and alignment are separate resources)
+function formatRequests(base, format) {
   const font = {};
   if (format.bold !== undefined) font.bold = format.bold;
   if (format.italic !== undefined) font.italic = format.italic;
@@ -209,13 +220,45 @@ async function writeCellFormat(wb, sheetName, address, format) {
   if (format.hAlign !== undefined) alignment.horizontalAlignment = H_ALIGN[format.hAlign];
   if (format.vAlign !== undefined) alignment.verticalAlignment = V_ALIGN[format.vAlign];
   if (format.wrap !== undefined) alignment.wrapText = format.wrap;
+  // Values Excel doesn't know (e.g. ExcelJS's "centerContinuous" without a mapping) are left out
+  for (const key of Object.keys(alignment)) if (alignment[key] === undefined) delete alignment[key];
 
-  await write(wb, sheetName, async (api) => {
-    if (Object.keys(font).length) await api(`${base}/font`).patch(font);
-    if (format.fillColor === null) await api(`${base}/fill/clear`).post({});
-    else if (format.fillColor !== undefined) await api(`${base}/fill`).patch({ color: format.fillColor });
-    if (Object.keys(alignment).length) await api(base).patch(alignment);
-  });
+  const requests = [];
+  if (Object.keys(font).length) requests.push({ method: 'PATCH', url: `${base}/font`, body: font });
+  if (format.fillColor === null) requests.push({ method: 'POST', url: `${base}/fill/clear`, body: {} });
+  else if (format.fillColor !== undefined) requests.push({ method: 'PATCH', url: `${base}/fill`, body: { color: format.fillColor } });
+  if (Object.keys(alignment).length) requests.push({ method: 'PATCH', url: base, body: alignment });
+  return requests;
+}
+
+const BATCH_SIZE = 20; // Graph's limit per $batch call
+
+/**
+ * Sends many small workbook requests as Graph JSON batches (20 per call) instead of one by one, in the
+ * workbook's session. Inside a batch each request waits for the one before it (dependsOn), so they
+ * run in order like separate calls. Throws if any of them fails.
+ */
+async function runBatched(wb, requests) {
+  if (!requests.length) return;
+  const client = await getAppGraphClient();
+  const sid = await sessionFor(wb);
+  const headers = { 'Content-Type': 'application/json', ...(sid && { 'workbook-session-id': sid }) };
+  for (let start = 0; start < requests.length; start += BATCH_SIZE) {
+    const chunk = requests.slice(start, start + BATCH_SIZE).map((r, i) => ({
+      id: String(i + 1),
+      method: r.method,
+      url: r.url,
+      headers,
+      body: r.body,
+      ...(i > 0 && { dependsOn: [String(i)] }),
+    }));
+    const { responses = [] } = await client.api('/$batch').post({ requests: chunk });
+    const failed = responses.filter((r) => r.status >= 400).sort((a, b) => Number(a.id) - Number(b.id))[0];
+    if (failed) {
+      const message = failed.body?.error?.message || `status ${failed.status}`;
+      throw Object.assign(new Error(`Excel refused a formatting step (${message})`), { statusCode: failed.status });
+    }
+  }
 }
 
 /**
@@ -270,6 +313,62 @@ async function deleteColumn(wb, sheetName, letter) {
   await write(wb, sheetName, (api) => api(`${sheetPath(wb, sheetName)}/range(address='${letter}:${letter}')/delete`).post({ shift: 'Left' }));
 }
 
+// Reads `select` (e.g. "values,numberFormat") of a range such as "N1:N384", fresh from the workbook
+async function readRange(wb, sheetName, address, select) {
+  return workbookGet(wb, `${sheetPath(wb, sheetName)}/range(address='${address}')`, select);
+}
+
+// Width of a column in points (Excel's own unit for the Graph API)
+async function getColumnWidth(wb, sheetName, letter) {
+  const fmt = await workbookGet(wb, `${sheetPath(wb, sheetName)}/range(address='${letter}1')/format`, 'columnWidth');
+  return fmt.columnWidth;
+}
+
+/**
+ * Moves a column in the file. Graph has no "move", so it is done like a careful cut & insert:
+ *   1. insert an empty column at `insertAt` (letter), shifting the columns from there one place right
+ *   2. copy the source column's values and number formats (`values`, `numberFormat`: rows firstRow..lastRow),
+ *      its width (`width`, points), cell formatting (`formats`: [{ address rows "a:b", format }] for the
+ *      new column) and its own vertical merged areas (`merges`: [{ top, bottom }])
+ *   3. read the new column back and compare it with `values`
+ *   4. only then delete the source column (now `sourceAfter`)
+ * If anything fails before step 4, the new column is removed again, so the file is as before.
+ * `toLetter` is the new column's letter after step 1 (= insertAt).
+ */
+async function moveColumnCopy(wb, sheetName, plan) {
+  const sheet = sheetPath(wb, sheetName);
+  const { insertAt, sourceAfter, firstRow, lastRow, values, numberFormat, width, formats, merges } = plan;
+  const block = (letter) => `${letter}${firstRow}:${letter}${lastRow}`;
+  const same = (a, b) => String(a ?? '') === String(b ?? '');
+
+  await write(wb, sheetName, async (api) => {
+    await api(`${sheet}/range(address='${insertAt}:${insertAt}')/insert`).post({ shift: 'Right' });
+    try {
+      await api(`${sheet}/range(address='${block(insertAt)}')`).patch({ values, numberFormat });
+      // Width, formatting and merged areas: many small requests, sent as a few batches
+      await runBatched(wb, [
+        ...(width ? [{ method: 'PATCH', url: `${sheet}/range(address='${insertAt}:${insertAt}')/format`, body: { columnWidth: width } }] : []),
+        ...formats.flatMap((f) => formatRequests(`${sheet}/range(address='${insertAt}${f.top}:${insertAt}${f.bottom}')/format`, f.format)),
+        ...merges.map((m) => ({ method: 'POST', url: `${sheet}/range(address='${insertAt}${m.top}:${insertAt}${m.bottom}')/merge`, body: { across: false } })),
+      ]);
+
+      const copied = await api(`${sheet}/range(address='${block(insertAt)}')`).select('values').get();
+      const bad = values.findIndex((row, i) => !same(row[0], copied.values?.[i]?.[0]) && !same(String(row[0]).replace(/^'/, ''), copied.values?.[i]?.[0]));
+      if (bad !== -1) throw Object.assign(new Error(`The copy of row ${firstRow + bad} didn't match the original`), { status: 500, copyMismatch: true });
+    } catch (err) {
+      // Put the file back as it was: remove the half-made column (the source column is untouched)
+      try {
+        await api(`${sheet}/range(address='${insertAt}:${insertAt}')/delete`).post({ shift: 'Left' });
+      } catch (undoErr) {
+        logger.error(`Moving a column failed and the new column ${insertAt} could not be removed again: ${undoErr.message}`);
+        throw Object.assign(new Error(`Moving the column failed (${err.message}), and the half-made column ${insertAt} could not be removed. Delete column ${insertAt} in Excel; the original column is unchanged.`), { status: 500 });
+      }
+      throw Object.assign(new Error(`Moving the column failed, so nothing was changed (${err.message}).`), { status: err.status || 502 });
+    }
+    await api(`${sheet}/range(address='${sourceAfter}:${sourceAfter}')/delete`).post({ shift: 'Left' });
+  });
+}
+
 // Hides (or shows) a whole column, e.g. "BT"
 async function setColumnHidden(wb, sheetName, letter, hidden = true) {
   await write(wb, sheetName, (api) => api(`${sheetPath(wb, sheetName)}/range(address='${letter}:${letter}')`).patch({ columnHidden: hidden }), explainGraphError);
@@ -288,5 +387,8 @@ module.exports = {
   insertColumn,
   deleteColumn,
   setColumnHidden,
+  readRange,
+  getColumnWidth,
+  moveColumnCopy,
   explainGraphError,
 };
