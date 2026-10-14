@@ -1442,9 +1442,6 @@ a.btn { text-decoration: none; }
 
 /* Dragging column letters (personal column order in SheetGrid) */
 .xl-letter[draggable='true'] { cursor: grab; }
-.xl-letter--dragging { opacity: 0.45; }
-.xl-letter--drop-left { box-shadow: inset 3px 0 0 #107c41; }
-.xl-letter--drop-right { box-shadow: inset -3px 0 0 #107c41; }
 
 /* Dropdown lists from the Excel file (data validation), like Excel's in-cell list button */
 .xl-dd-btn {
@@ -1740,6 +1737,11 @@ a.btn { text-decoration: none; }
 .switch input:disabled + .switch__track { opacity: 0.5; }
 .switch__label { color: var(--muted); font-size: 13px; font-weight: 600; }
 .switch input:checked ~ .switch__label { color: var(--purple-haze); }
+
+/* Dragging a column letter to move the column in the Excel file */
+.xl-letter--dragging { opacity: 0.45; }
+.xl-letter--drop-left { box-shadow: inset 3px 0 0 #107c41; }
+.xl-letter--drop-right { box-shadow: inset -3px 0 0 #107c41; }
 
 /* Column width: drag the right edge of a column letter (like Excel); double-click resets it */
 .xl-col-resize {

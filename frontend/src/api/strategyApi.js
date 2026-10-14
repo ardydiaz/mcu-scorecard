@@ -63,17 +63,14 @@ export async function pasteGridCells({ workbook, sheet, targets }) {
 // Column changes in the Excel file: action 'insert' (column + side + header), 'update' (today's
 // update column) or 'delete' (admins). `expectedHeader` makes the server refuse when the column moved.
 // A delete of a column with values fails with code CONFIRM_DELETE until `confirm` is sent.
-export async function changeGridColumns({ workbook, sheet, action, column, side, header, expectedHeader, confirm }) {
-  const { data } = await api.post('/strategy/grid/columns', { workbook, sheet, action, column, side, header, expectedHeader, confirm });
+// action: insert | update | delete | rename | move (move: `column` goes to the `side` of `target`)
+export async function changeGridColumns({ workbook, sheet, action, column, side, header, expectedHeader, confirm, target, expectedTarget }) {
+  const { data } = await api.post('/strategy/grid/columns', {
+    workbook, sheet, action, column, side, header, expectedHeader, confirm, target, expectedTarget,
+  });
   return data;
 }
 
-// Saves the user's own column order for a sheet (list of column keys; null = the sheet's order).
-// Only this user's view changes, not the Excel file. Returns the saved order.
-export async function setColumnOrder({ workbook, sheet, columns }) {
-  const { data } = await api.put('/strategy/grid/column-order', { workbook, sheet, columns });
-  return data.columnOrder;
-}
 
 // Hides (hidden: true) or unhides rows in the user's own view; `all` with hidden: false unhides
 // everything. Returns the sheet's hidden row keys. The Excel file isn't changed.

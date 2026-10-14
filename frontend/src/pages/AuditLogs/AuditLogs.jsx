@@ -86,6 +86,8 @@ function Details({ entry }) {
       );
     case 'sheet.unmerge':
       return null;
+    case 'sheet.column_move':
+      return <><strong>{d.header}</strong>: <ValueChange from={`column ${d.from}`} to={`column ${d.to}`} /> ({d.position})</>;
     case 'sheet.edit_denied':
       return <>Tried to {d.attempted}: {d.reason}</>;
     case 'audit.export':

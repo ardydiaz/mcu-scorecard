@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAllSheets, useScorecardSheets, useSheetGrid, useStrategyMap, useWorkbook } from '../../hooks/useStrategy';
 import SheetGrid from '../../components/tables/SheetGrid';
-import { changeGridColumns, pasteGridCells, setColumnOrder, formatGridCell, mergeGridCells, setHiddenRows, updateGridCell } from '../../api/strategyApi';
+import { changeGridColumns, pasteGridCells, formatGridCell, mergeGridCells, setHiddenRows, updateGridCell } from '../../api/strategyApi';
 import { toastSuccess } from '../../utils/dialog';
 import { excelUrl } from '../../utils/excelLinks';
 import { logActivity } from '../../api/auditApi';
@@ -166,11 +166,13 @@ function SheetView({ workbookId, sheet, workbook, gridState, sheets, onSheetChan
       error.code = err.response?.data?.code;
       error.filled = err.response?.data?.filled;
       error.header = err.response?.data?.header;
+      error.lost = err.response?.data?.lost;
       throw error;
     }
     toastSuccess({
       delete: `Column ${result.column} deleted from the Excel file.`,
       rename: `Column ${result.column} renamed to “${result.header}” in the Excel file.`,
+      move: `Column moved to ${result.column} in the Excel file.`,
     }[request.action] || `Column ${result.column} “${result.header}” added to the Excel file.`);
     gridState.reload(true);
     return result;
@@ -180,15 +182,6 @@ function SheetView({ workbookId, sheet, workbook, gridState, sheets, onSheetChan
   async function pasteCells({ targets }) {
     try {
       return await pasteGridCells({ workbook: workbookId, sheet: grid.sheet, targets });
-    } catch (err) {
-      throw toGridError(err);
-    }
-  }
-
-  // Saves the user's own column order (dragging column letters); the Excel file isn't changed
-  async function saveColumnOrder({ columns }) {
-    try {
-      return await setColumnOrder({ workbook: workbookId, sheet: grid.sheet, columns });
     } catch (err) {
       throw toGridError(err);
     }
@@ -242,7 +235,6 @@ function SheetView({ workbookId, sheet, workbook, gridState, sheets, onSheetChan
             onMergeCells={mergeCells}
             onHideRows={hideRows}
             onPasteCells={pasteCells}
-            onColumnOrder={saveColumnOrder}
             excelLinkFor={excelLinkFor}
             onColumns={grid.canInsertColumns ? changeColumns : undefined}
             sheets={sheets}

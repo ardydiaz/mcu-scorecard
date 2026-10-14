@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { confirmDialog, promptDialog } from '../../utils/dialog';
+import { alertDialog, confirmDialog, promptDialog } from '../../utils/dialog';
 import SheetRibbon from './SheetRibbon';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -196,7 +196,7 @@ function ruleMatches(rule, value) {
 const clipboardCell = (v) => (/[\t\n\r"]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
 
 export default function SheetGrid({
-  grid, onSaveCell, onFormatCell, onMergeCells, onHideRows, onColumns, onPasteCells, onColumnOrder, excelLinkFor, sheets = [], onSheetChange,
+  grid, onSaveCell, onFormatCell, onMergeCells, onHideRows, onColumns, onPasteCells, excelLinkFor, sheets = [], onSheetChange,
 }) {
   const format = grid.format;
   const [zoomPct, setZoomPct] = useState(() => readZoom(format?.zoom || 100));
@@ -210,12 +210,11 @@ export default function SheetGrid({
   const [columnBusy, setColumnBusy] = useState(''); // message on the loader shown while a column change or paste runs
   const [copied, setCopied] = useState(null); // { r1, r2, c1, c2 }: copied cells, shown with a dashed border
   const [cellMenu, setCellMenu] = useState(null); // { x, y } for the right-click menu on cells
-  // The user's own column order (column keys), or null for the sheet's order; changed by dragging letters
-  const [colOrder, setColOrder] = useState(grid.columnOrder || null);
-  const [drag, setDrag] = useState(null); // { from: grid column, to: grid column, side: 'left' | 'right' }
   // The user's own column widths in px at 100% zoom, by column key (dragging a letter's right edge)
   const [colWidths, setColWidths] = useState(() => readWidths(grid));
   const resizing = useRef(null); // { key, startX, startWidth } while a column edge is dragged
+  // Dragging a column letter onto another moves the column in the Excel file: { from, to, side }
+  const [drag, setDrag] = useState(null);
   const [listOpen, setListOpen] = useState(false); // the selected cell's dropdown list (Excel data validation) is open
   // Local copy of the workbook's style table; formatting done here adds styles to it
   const [styles, setStyles] = useState(format?.styles || []);
@@ -255,7 +254,6 @@ export default function SheetGrid({
   useEffect(() => {
     setRows(grid.rows);
     setHiddenKeys(new Set(grid.hiddenKeys || []));
-    setColOrder(grid.columnOrder || null);
     setColWidths(readWidths(grid));
     setCopied(null);
     setRowMenu(null);
@@ -272,9 +270,10 @@ export default function SheetGrid({
     try { localStorage.setItem(ZOOM_KEY, String(zoomPct)); } catch { /* storage unavailable */ }
   }, [zoomPct]);
 
-  // Columns hidden in the workbook stay hidden here. Each column has a key (its header text, numbered
-  // when headers repeat) so a personal order survives columns being inserted or deleted in Excel.
-  const sheetCols = useMemo(() => {
+  // Columns in the Excel file's order (columns can't be moved here: Microsoft Graph can't move a
+  // column in the file, so the grid always matches it). Columns hidden in the workbook stay hidden.
+  // Each column has a key (its header text, numbered when headers repeat) for personal column widths.
+  const cols = useMemo(() => {
     const seen = new Map();
     return grid.headers.map((h, i) => {
       const base = h.header || h.label || `#${h.letter}`;
@@ -283,20 +282,6 @@ export default function SheetGrid({
       return { ...h, index: i, key: n > 1 ? `${base}#${n}` : base };
     }).filter((h) => !format?.columns[h.index]?.hidden);
   }, [grid.headers, format]);
-  // In the user's order: saved keys first; a column not in the saved order (e.g. inserted since)
-  // goes right after the column to its left in the sheet
-  const cols = useMemo(() => {
-    if (!colOrder?.length) return sheetCols;
-    const byKey = new Map(sheetCols.map((h) => [h.key, h]));
-    const out = colOrder.map((k) => byKey.get(k)).filter(Boolean);
-    sheetCols.forEach((h, i) => {
-      if (out.includes(h)) return;
-      const left = i > 0 ? out.indexOf(sheetCols[i - 1]) : -1;
-      out.splice(left + 1, 0, h);
-    });
-    return out;
-  }, [sheetCols, colOrder]);
-  const customOrder = cols.some((h, i) => h !== sheetCols[i]);
   const style = (index) => (index === null || index === undefined ? null : styles[index]);
 
   // ---- Excel's conditional formatting and dropdown lists (from the file, by grid column) ----
@@ -662,8 +647,9 @@ export default function SheetGrid({
     setColMenu({ x: e.clientX - box.left, y: e.clientY - box.top, c });
   }
 
-  // Runs a column change; the page reloads the grid afterwards. A delete of a column with values asks
-  // again with the number of cells that would be lost (code CONFIRM_DELETE from the server).
+  // Runs a column change; the page reloads the grid afterwards. The server may ask first (409 + code):
+  //   CONFIRM_DELETE      deleting a column with values: how many cells would be lost
+  //   CONFIRM_DROP_RULES  moving a column whose dropdown list / color rules can't move with it
   async function runColumns(request, busyText) {
     setSaving('columns');
     setStatus(busyText);
@@ -672,20 +658,36 @@ export default function SheetGrid({
       try {
         await onColumns(request);
       } catch (err) {
-        if (err.code !== 'CONFIRM_DELETE') throw err;
+        const question = {
+          CONFIRM_DELETE: {
+            title: `Delete “${err.header}” and its data?`,
+            text: `${err.filled} cell(s) in this column have values, in every department's rows. They are deleted from the Excel file, and this can't be undone here (SharePoint's version history keeps older copies).`,
+            confirmText: 'Delete column and data',
+            tone: 'danger',
+            cancelled: 'Delete cancelled',
+          },
+          CONFIRM_DROP_RULES: {
+            title: `Move “${err.header}” without its ${(err.lost || []).join(' and ') || 'rules'}?`,
+            text: `${err.message} Its values and formatting move as usual. Move it anyway?`,
+            confirmText: 'Move anyway',
+            tone: 'warning',
+            cancelled: 'Move cancelled',
+          },
+        }[err.code];
+        if (!question) throw err;
         setColumnBusy('');
-        const ok = await confirmDialog({
-          title: `Delete “${err.header}” and its data?`,
-          text: `${err.filled} cell(s) in this column have values, in every department's rows. They are deleted from the Excel file, and this can't be undone here (SharePoint's version history keeps older copies).`,
-          confirmText: 'Delete column and data',
-          tone: 'danger',
-        });
-        if (!ok) { setStatus('Delete cancelled'); return; }
+        const ok = await confirmDialog(question);
+        if (!ok) { setStatus(question.cancelled); return; }
         setColumnBusy(busyText);
         await onColumns({ ...request, confirm: true });
       }
     } catch (err) {
       setStatus(err.message, true);
+      // A refused move explains why (key column, formulas, dropdowns…): show it, not only in the status bar
+      if (request.action === 'move') {
+        setColumnBusy('');
+        await alertDialog({ title: 'The column was not moved', text: err.message });
+      }
     } finally {
       setSaving(null);
       setColumnBusy('');
@@ -718,39 +720,27 @@ export default function SheetGrid({
     if (ok) await runColumns({ action: 'update' }, `Adding the ${today} update column…`);
   }
 
-  // ---- Personal column order: drag a column letter onto another ----
-  async function saveColumnOrder(next, message) {
-    const previous = colOrder;
-    setColOrder(next);
-    setStatus(message);
-    try {
-      const saved = await onColumnOrder({ columns: next });
-      setColOrder(saved);
-    } catch (err) {
-      setColOrder(previous);
-      setStatus(`Couldn't save the column order: ${err.message}`, true);
-    }
-  }
-
-  function dropColumn() {
+  // Drop of a dragged column letter: moves that column in the Excel file, next to the one dropped on
+  async function dropColumn() {
     const d = drag;
     setDrag(null);
-    if (!d || d.to === null || d.from === d.to) return;
-    const keys = cols.map((h) => h.key);
-    const [moved] = keys.splice(d.from, 1);
-    let at = d.to + (d.side === 'right' ? 1 : 0);
-    if (d.from < at) at -= 1;
-    keys.splice(at, 0, moved);
-    if (keys.every((k, i) => k === cols[i].key)) return;
-    const same = keys.every((k, i) => k === sheetCols[i]?.key) && keys.length === sheetCols.length;
-    setAnchor(null);
-    setSel((s) => ({ r: s.r, c: at }));
-    saveColumnOrder(same ? null : keys, `Moved column ${cols[d.from].letter} in your view only (the Excel file isn't changed).`);
-  }
-
-  function resetColumnOrder() {
-    setColMenu(null);
-    saveColumnOrder(null, 'Columns are back in the sheet’s order.');
+    if (!d || d.to === null || !onColumns || saving) return;
+    const from = cols[d.from];
+    const target = cols[d.to];
+    if (!from || !target) return;
+    // Dropping next to itself changes nothing
+    if (d.from === d.to || (d.side === 'right' && d.to === d.from - 1) || (d.side === 'left' && d.to === d.from + 1)) return;
+    const ok = await confirmDialog({
+      title: `Move column ${from.letter} “${from.header || from.label}”?`,
+      text: `It moves ${d.side} of column ${target.letter} “${target.header || target.label}” in the Excel file, for every department, `
+        + 'with its values and formatting. The columns in between shift one place. This takes a few seconds.',
+      confirmText: 'Move column',
+    });
+    if (!ok) return;
+    await runColumns({
+      action: 'move', column: from.letter, target: target.letter, side: d.side,
+      expectedHeader: from.header, expectedTarget: target.header,
+    }, `Moving column ${from.letter} ${d.side} of ${target.letter}…`);
   }
 
   function openInExcel(c) {
@@ -1012,9 +1002,6 @@ export default function SheetGrid({
   const mergeState = (() => {
     const busy = !!saving || !!editing;
     if (!onMergeCells || !current || !currentCol) return { available: false };
-    if (customOrder) {
-      return { available: true, busy, canMerge: false, canUnmerge: false, problem: 'Merging uses the sheet’s real column order. Right-click a column letter → Reset column order first.' };
-    }
     if (selectedMerge) {
       return { available: true, busy, canMerge: false, canUnmerge: selectedFormattable, problem: selectedFormattable ? null : `${address} can't be changed by you.` };
     }
@@ -1235,9 +1222,6 @@ export default function SheetGrid({
           {excelLinkFor && (
             <button type="button" role="menuitem" onClick={() => openInExcel(colMenu.c)}>Open in Excel at column {cols[colMenu.c]?.letter}</button>
           )}
-          {customOrder && onColumnOrder && (
-            <button type="button" role="menuitem" onClick={resetColumnOrder}>Reset column order</button>
-          )}
           {customWidths && (
             <button type="button" role="menuitem" onClick={resetAllWidths}>Reset column widths</button>
           )}
@@ -1323,10 +1307,12 @@ export default function SheetGrid({
                     drag && drag.from === c && 'xl-letter--dragging',
                     drag && drag.to === c && drag.from !== c && `xl-letter--drop-${drag.side}`,
                   ].filter(Boolean).join(' ')}
-                  draggable={!!onColumnOrder && !editing}
+                  draggable={!!onColumns && !editing && !saving}
                   onDragStart={(e) => {
                     if (resizing.current) { e.preventDefault(); return; }
-                    e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', h.letter); setDrag({ from: c, to: null, side: 'left' });
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', h.letter);
+                    setDrag({ from: c, to: null, side: 'left' });
                   }}
                   onDragOver={(e) => {
                     if (!drag) return;
@@ -1336,8 +1322,8 @@ export default function SheetGrid({
                     if (drag.to !== c || drag.side !== side) setDrag((d) => ({ ...d, to: c, side }));
                   }}
                   onDrop={(e) => { e.preventDefault(); dropColumn(); }}
-                  onDragEnd={() => setDrag(null)}
-                  title={`Select column ${h.letter} (Shift+click to select several columns${onColumnOrder ? ', drag to move it in your view' : ''}${onColumns ? ', right-click for more' : ''})`}
+                  onDragEnd={() => setDrag((d) => (d && d.to === null ? null : d))}
+                  title={`Select column ${h.letter} (Shift+click to select several columns${onColumns ? ', drag to move it in the Excel file, right-click for more' : ''}; drag its right edge to change the width)`}
                   onMouseDown={(e) => { if (e.button === 0) selectColumns(c, e.shiftKey); }}
                   onContextMenu={(e) => openColMenu(e, c)}
                 >
@@ -1347,8 +1333,6 @@ export default function SheetGrid({
                     title={`Drag to change the width of column ${h.letter} (your view only). Double-click to reset.`}
                     onMouseDown={(e) => { if (e.button === 0) startResize(e, h); }}
                     onDoubleClick={(e) => resetWidth(e, h)}
-                    onDragStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                    draggable={false}
                   />
                 </th>
               ))}

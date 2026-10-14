@@ -113,3 +113,25 @@ export async function confirmDialog({ title, text = '', items = [], confirmText 
   });
   return result.isConfirmed;
 }
+
+// A message with a single OK button (e.g. why an action couldn't be done)
+export async function alertDialog({ title, text = '', tone = 'warning', confirmText = 'OK' }) {
+  await Swal.fire({
+    target: document.fullscreenElement || 'body',
+    position: 'center',
+    title,
+    html: `<p class="mcu-swal__text">${escapeHtml(text)}</p>`,
+    icon: ICONS[tone] || 'warning',
+    confirmButtonText: confirmText,
+    buttonsStyling: false,
+    customClass: {
+      container: 'mcu-swal-backdrop',
+      popup: 'mcu-swal',
+      title: 'mcu-swal__title',
+      htmlContainer: 'mcu-swal__body',
+      icon: `mcu-swal__icon mcu-swal__icon--${tone}`,
+      actions: 'mcu-swal__actions',
+      confirmButton: 'btn btn--primary',
+    },
+  });
+}

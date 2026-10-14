@@ -6,7 +6,8 @@ import { getErrorMessage } from '../api/axios';
 // Results are tagged with the dependencies they were loaded for: right after they change (e.g.
 // another file is picked) the old result isn't returned, so pages never combine the new file
 // with the previous file's sheet list.
-function useAsync(load, deps) {
+// `wait`: nothing is loaded yet and the result stays "loading" (e.g. until the file to read is known).
+function useAsync(load, deps, { wait = false } = {}) {
   const key = JSON.stringify(deps);
   const [result, setResult] = useState({ key: null, data: null, error: '' });
   const [loading, setLoading] = useState(true);
@@ -14,6 +15,7 @@ function useAsync(load, deps) {
   const [forceRefresh, setForceRefresh] = useState(false);
 
   useEffect(() => {
+    if (wait) { setLoading(true); return undefined; }
     let cancelled = false;
     setLoading(true);
     setResult((r) => (r.error ? { ...r, error: '' } : r)); // a reload starts without the old error
@@ -23,7 +25,7 @@ function useAsync(load, deps) {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, refreshKey]);
+  }, [key, refreshKey, wait]);
 
   const reload = useCallback((refresh = false) => {
     setForceRefresh(refresh);
@@ -39,7 +41,9 @@ function useAsync(load, deps) {
   };
 }
 
-// `workbook` everywhere below is the scorecard file's id ('' = the default file)
+// `workbook` everywhere below is the scorecard file's id ('' = the default file, null = not known
+// yet: the hook waits instead of loading, see useSelectedWorkbook)
+const pending = (workbook) => ({ wait: workbook === null });
 
 const WORKBOOKS_POLL_MS = 15 * 1000;
 
@@ -79,32 +83,34 @@ export function useWorkbooks() {
 }
 
 export function useScorecardSheets({ workbook } = {}) {
-  return useAsync(() => getSheets({ workbook }), [workbook]);
+  return useAsync(() => getSheets({ workbook }), [workbook], pending(workbook));
 }
 
 export function useAllSheets({ workbook } = {}) {
-  return useAsync(() => getSheets({ workbook, all: true }), [workbook]);
+  return useAsync(() => getSheets({ workbook, all: true }), [workbook], pending(workbook));
 }
 
 export function useWorkbook({ workbook } = {}) {
-  return useAsync(() => getWorkbook({ workbook }), [workbook]);
+  return useAsync(() => getWorkbook({ workbook }), [workbook], pending(workbook));
 }
 
 export function useSheetGrid({ workbook, sheet, department }) {
   return useAsync(
     (refresh) => (sheet ? getSheetGrid({ workbook, sheet, department, refresh }) : Promise.resolve(null)),
-    [workbook, sheet, department]
+    [workbook, sheet, department],
+    pending(workbook)
   );
 }
 
 export function useScoreboard({ workbook, sheet, department }) {
-  return useAsync((refresh) => getScoreboard({ workbook, sheet, department, refresh }), [workbook, sheet, department]);
+  return useAsync((refresh) => getScoreboard({ workbook, sheet, department, refresh }), [workbook, sheet, department], pending(workbook));
 }
 
 // Summary counts for the rows the user may see; no request while `sheet` is empty
 export function useStrategyMap({ workbook, sheet, department }) {
   return useAsync(
     (refresh) => (sheet ? getStrategyMap({ workbook, sheet, department, refresh }) : Promise.resolve(null)),
-    [workbook, sheet, department]
+    [workbook, sheet, department],
+    pending(workbook)
   );
 }
