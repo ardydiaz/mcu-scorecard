@@ -10,6 +10,18 @@ const { initWorkbooks } = require('./services/workbook.service');
 // Register models and associations before touching the database
 require('./models');
 
+// A promise that fails with nobody waiting for it (e.g. a background Excel/Graph call during a
+// network blip) would otherwise stop the whole API: log it and keep serving.
+process.on('unhandledRejection', (reason) => {
+  logger.error(`Unhandled promise rejection (the API keeps running): ${reason?.stack || reason}`);
+});
+// A thrown error nothing caught leaves the process in an unknown state: log it and exit, so the
+// service manager (systemd, Restart=always) starts a fresh API within seconds.
+process.on('uncaughtException', (err) => {
+  logger.error(`Uncaught exception, restarting: ${err?.stack || err}`);
+  process.exit(1);
+});
+
 async function start() {
   try {
     await connectDatabase();
