@@ -23,11 +23,17 @@ function normalizeLight(value) {
   return String(value).trim();
 }
 
-// "At 73% Completion", "HRIS at 96.22%", "Completion: 91.20%" -> 73 / 96 / 91; otherwise null.
-// Other percentages ("83% used storage", "inventory 100% completed") are not the project's progress.
+// A week's completion % comes from its update cell. The main way: the cell starts with the number,
+// e.g. "40% - Ongoing coordination with PLDT" (also "- 40% …", "• 40%: …"). A leading percentage of
+// savings ("5% reduction …", "10% savings …") is not progress. As before, notes written as
+// "At 73% Completion", "HRIS at 96.22%" or "Completion: 91.20%" also count.
+// Other percentages inside the text ("with 5% reduction", "83% used storage") are not the project's progress.
+const LEADING_PERCENT = /^[\s\-–•*]*(\d{1,3}(?:\.\d+)?)\s*%(?!\s*(?:reduction|savings?|saved|contribution|decrease|increase|cut|discount|off|of\s+(?:the\s+)?(?:budget|expense|cost)))/i;
 function percentFrom(note) {
   const text = String(note || '');
-  const m = /\bat\s+(\d{1,3}(?:\.\d+)?)\s*%/i.exec(text) || /\bcompletion\s*:\s*(\d{1,3}(?:\.\d+)?)\s*%/i.exec(text);
+  const m = LEADING_PERCENT.exec(text)
+    || /\bat\s+(\d{1,3}(?:\.\d+)?)\s*%/i.exec(text)
+    || /\bcompletion\s*:\s*(\d{1,3}(?:\.\d+)?)\s*%/i.exec(text);
   if (!m) return null;
   const pct = Math.round(Number(m[1]));
   return pct >= 0 && pct <= 100 ? pct : null;
@@ -56,7 +62,7 @@ function normalizeStage(value) {
 // Best guess from the note (and the project name) when there is no Stage column
 function estimateStage(note, pct, name = '') {
   const n = String(note || '').toLowerCase();
-  if (isCompleted(note)) return 'Complete';
+  if (isCompleted(note) || pct === 100) return 'Complete';
   if (/china/.test(n)) return 'Project China';
   if (/waiting for|waiting on|pending (delivery|payment|approval)/.test(n)) return 'Waiting';
   if (/sourcing|for sourcing|supplier/.test(n)) return 'Sourcing';
@@ -140,6 +146,37 @@ const tierLetter = (tier) => (/class\s*([a-z])\b/i.exec(tier || '')?.[1] || /^\s
 const stripProject = (name) => String(name || '').replace(/^project\s+/i, '').trim();
 const isCostKpi = (kpi) => /(expense|cost)/i.test(kpi || '') && /reduc|sav/i.test(kpi || '');
 
+// The percentage in a KPI target: ">10%", "10%", "at least 15% reduction" -> 10 / 10 / 15; otherwise null
+function percentTarget(target) {
+  const m = /(\d{1,3}(?:\.\d+)?)\s*%/.exec(String(target || ''));
+  const value = m ? Number(m[1]) : null;
+  return value > 0 && value <= 100 ? value : null;
+}
+
+// Savings reported in a note: "with 5% reduction", "8% savings", "savings of 8%", "reduced by 6%" ->
+// 5 / 8 / 8 / 6; "Still no reduction", "0% contribution on reduction" -> 0; null when it says nothing
+function savingsFrom(note) {
+  const text = String(note || '');
+  const m = /(\d{1,3}(?:\.\d+)?)\s*%\s*(?:[a-z]+\s+){0,2}?(?:reduction|savings?|saved|decrease|cut)\b/i.exec(text)
+    || /\b(?:reductions?|savings?|saved|reduced|decreased?|cut)\s+(?:of|by)\s+(\d{1,3}(?:\.\d+)?)\s*%/i.exec(text);
+  if (m) return Number(m[1]);
+  if (/\bno\s+(?:\w+\s+)?(?:reduction|savings?)\b|\b0\s*%\s*(?:contribution|reduction|savings?)/i.test(text)) return 0;
+  return null;
+}
+
+/**
+ * Progress of a cost-reduction project from its savings, measured against its KPI's percentage target:
+ * "5% reduction" with a ">10%" target = 50%; reaching or passing the target = 100%. Only for cost KPIs
+ * (expense / cost reduction or savings) whose target is a percentage; null otherwise.
+ */
+function savingsProgress(kpi, target, note) {
+  if (!isCostKpi(kpi)) return null;
+  const goal = percentTarget(target);
+  const saved = goal ? savingsFrom(note) : null;
+  if (saved === null) return null;
+  return Math.min(100, Math.round((saved / goal) * 100));
+}
+
 /**
  * { sheet, academicYear, projects: [static fields], snapshots: [{ label, date, items }] (oldest first;
  *   items[i] belongs to projects[i]), stageColumn, canViewAll, viewingDepartments, departments }
@@ -196,7 +233,9 @@ async function getScoreboardForUser(wb, user, { sheet, department, refresh } = {
     const upTo = labels.slice(0, labels.indexOf(label) + 1).reverse();
     const found = upTo.map((l) => ({ l, text: d.statuses.find((s) => s.label === l)?.text || '' })).find((x) => x.text);
     const note = found?.text || '';
-    const pct = isCompleted(note) ? 100 : percentFrom(note);
+    // Completion %: "Completed…" = 100; else a stated percentage ("40% - …"); else, for cost-reduction
+    // projects, the savings reported against the KPI's percentage target ("5% reduction" of >10% = 50%)
+    const pct = isCompleted(note) ? 100 : percentFrom(note) ?? savingsProgress(d.kpi, d.target, note);
     const stage = normalizeStage(d.stageColumn) || estimateStage(note, pct, d.name);
     const entry = { stage, pct: stage === 'Complete' ? 100 : pct };
     if (found && found.l !== label) entry.from = found.l;
@@ -226,4 +265,4 @@ async function getScoreboardForUser(wb, user, { sheet, department, refresh } = {
   };
 }
 
-module.exports = { getScoreboardForUser, STAGES };
+module.exports = { getScoreboardForUser, STAGES, percentFrom, savingsProgress };
