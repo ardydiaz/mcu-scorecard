@@ -88,6 +88,10 @@ function Details({ entry }) {
       return null;
     case 'sheet.column_move':
       return <><strong>{d.header}</strong>: <ValueChange from={`column ${d.from}`} to={`column ${d.to}`} /> ({d.position})</>;
+    case 'sheet.column_width':
+      return <>Column{d.columns?.length > 1 ? 's' : ''} {(d.columns || []).join(', ')}: {d.autofit ? 'fit to content' : `${d.width} px wide`}</>;
+    case 'sheet.row_height':
+      return <>{d.rows} row{d.rows === 1 ? '' : 's'}: {d.autofit ? 'fit to content' : `${d.height} px high`}</>;
     case 'sheet.edit_denied':
       return <>Tried to {d.attempted}: {d.reason}</>;
     case 'audit.export':

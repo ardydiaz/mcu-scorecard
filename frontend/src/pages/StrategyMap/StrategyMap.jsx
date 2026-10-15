@@ -2,7 +2,9 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAllSheets, useScorecardSheets, useSheetGrid, useStrategyMap, useWorkbook } from '../../hooks/useStrategy';
 import SheetGrid from '../../components/tables/SheetGrid';
-import { changeGridColumns, pasteGridCells, formatGridCell, mergeGridCells, setHiddenRows, updateGridCell } from '../../api/strategyApi';
+import {
+  changeGridColumns, pasteGridCells, formatGridCell, mergeGridCells, setGridColumnWidths, setGridRowHeights, setHiddenRows, updateGridCell,
+} from '../../api/strategyApi';
 import { toastSuccess } from '../../utils/dialog';
 import { excelUrl } from '../../utils/excelLinks';
 import { logActivity } from '../../api/auditApi';
@@ -193,6 +195,22 @@ function SheetView({ workbookId, sheet, workbook, gridState, sheets, onSheetChan
     return excelUrl(workbook.docUrl, { sheet: grid.sheet, cell });
   } : undefined;
 
+  // Column widths / row heights saved in the Excel file (dragging or double-clicking edges in the grid)
+  async function resizeColumns({ columns, width, autofit }) {
+    try {
+      return await setGridColumnWidths({ workbook: workbookId, sheet: grid.sheet, columns, width, autofit });
+    } catch (err) {
+      throw toGridError(err);
+    }
+  }
+  async function resizeRows({ rows, height, autofit }) {
+    try {
+      return await setGridRowHeights({ workbook: workbookId, sheet: grid.sheet, rows, height, autofit });
+    } catch (err) {
+      throw toGridError(err);
+    }
+  }
+
   async function hideRows({ keys, hidden, all }) {
     try {
       return await setHiddenRows({ workbook: workbookId, sheet: grid.sheet, keys, hidden, all });
@@ -234,6 +252,8 @@ function SheetView({ workbookId, sheet, workbook, gridState, sheets, onSheetChan
             onFormatCell={formatCell}
             onMergeCells={mergeCells}
             onHideRows={hideRows}
+            onColumnWidths={resizeColumns}
+            onRowHeights={resizeRows}
             onPasteCells={pasteCells}
             excelLinkFor={excelLinkFor}
             onColumns={grid.canInsertColumns ? changeColumns : undefined}

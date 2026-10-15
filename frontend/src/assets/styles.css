@@ -1743,7 +1743,8 @@ a.btn { text-decoration: none; }
 .xl-letter--drop-left { box-shadow: inset 3px 0 0 #107c41; }
 .xl-letter--drop-right { box-shadow: inset -3px 0 0 #107c41; }
 
-/* Column width: drag the right edge of a column letter (like Excel); double-click resets it */
+/* Column width / row height: drag the right edge of a column letter or the bottom edge of a row
+   number (like Excel); double-click it to fit the content. Saved to the Excel file. */
 .xl-col-resize {
   position: absolute; top: 0; right: 0; bottom: 0; z-index: 3; width: 7px; cursor: col-resize;
 }
@@ -1751,5 +1752,15 @@ a.btn { text-decoration: none; }
   content: ''; position: absolute; top: 3px; bottom: 3px; right: 0; width: 3px; border-radius: 2px; background: transparent; transition: background 0.12s;
 }
 .xl-col-resize:hover::after, .xl-resizing .xl-col-resize:active::after { background: #107c41; }
+.xl-row-resize {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; height: 6px; cursor: row-resize;
+}
+.xl-row-resize::after {
+  content: ''; position: absolute; left: 3px; right: 3px; bottom: 0; height: 3px; border-radius: 2px; background: transparent; transition: background 0.12s;
+}
+.xl-row-resize:hover::after { background: #107c41; }
+.xl-corner { cursor: pointer; }
+.xl-corner:hover { background: #d9d9d9; }
 /* While resizing: keep the resize cursor everywhere and don't select text */
 body.xl-resizing, body.xl-resizing * { cursor: col-resize !important; user-select: none !important; }
+body.xl-resizing-row, body.xl-resizing-row * { cursor: row-resize !important; user-select: none !important; }

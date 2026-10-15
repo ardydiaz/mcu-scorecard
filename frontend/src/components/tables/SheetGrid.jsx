@@ -5,21 +5,8 @@ import SheetRibbon from './SheetRibbon';
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const ZOOM_STEPS = [50, 60, 70, 80, 90, 100, 110, 125, 150];
 const ZOOM_KEY = 'mcu-scorecard-grid-zoom';
-// Column widths the user set by dragging a column letter's edge (this browser only), per file and sheet
-const WIDTHS_KEY = 'mcu-scorecard-grid-widths';
-const MIN_COL_PX = 24;
-const widthsStoreKey = (grid) => `${grid.workbookId || ''}::${grid.sheet}`;
-function readWidths(grid) {
-  try { return JSON.parse(localStorage.getItem(WIDTHS_KEY) || '{}')[widthsStoreKey(grid)] || {}; } catch { return {}; }
-}
-function saveWidths(grid, widths) {
-  try {
-    const all = JSON.parse(localStorage.getItem(WIDTHS_KEY) || '{}');
-    if (Object.keys(widths).length) all[widthsStoreKey(grid)] = widths;
-    else delete all[widthsStoreKey(grid)];
-    localStorage.setItem(WIDTHS_KEY, JSON.stringify(all));
-  } catch { /* storage unavailable: widths last until the page is reloaded */ }
-}
+const MIN_COL_PX = 24; // narrowest a column can be dragged
+const MIN_ROW_PX = 8; // lowest a row can be dragged
 const UNDO_LIMIT = 100; // most recent changes kept for Ctrl+Z
 
 // The formatting that puts back `before` (a cell style) for the options a change touched
@@ -196,7 +183,7 @@ function ruleMatches(rule, value) {
 const clipboardCell = (v) => (/[\t\n\r"]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
 
 export default function SheetGrid({
-  grid, onSaveCell, onFormatCell, onMergeCells, onHideRows, onColumns, onPasteCells, excelLinkFor, sheets = [], onSheetChange,
+  grid, onSaveCell, onFormatCell, onMergeCells, onHideRows, onColumns, onColumnWidths, onRowHeights, onPasteCells, excelLinkFor, sheets = [], onSheetChange,
 }) {
   const format = grid.format;
   const [zoomPct, setZoomPct] = useState(() => readZoom(format?.zoom || 100));
@@ -210,9 +197,12 @@ export default function SheetGrid({
   const [columnBusy, setColumnBusy] = useState(''); // message on the loader shown while a column change or paste runs
   const [copied, setCopied] = useState(null); // { r1, r2, c1, c2 }: copied cells, shown with a dashed border
   const [cellMenu, setCellMenu] = useState(null); // { x, y } for the right-click menu on cells
-  // The user's own column widths in px at 100% zoom, by column key (dragging a letter's right edge)
-  const [colWidths, setColWidths] = useState(() => readWidths(grid));
-  const resizing = useRef(null); // { key, startX, startWidth } while a column edge is dragged
+  // Sizes changed since the grid was loaded, in px at 100% zoom: column widths by column key, row
+  // heights by sheet row number. Dragging an edge shows them at once; they're saved to the Excel file
+  // when the mouse is released (onColumnWidths / onRowHeights)
+  const [colWidths, setColWidths] = useState({});
+  const [rowHeights, setRowHeights] = useState({});
+  const resizing = useRef(null); // set while a column or row edge is dragged
   // Dragging a column letter onto another moves the column in the Excel file: { from, to, side }
   const [drag, setDrag] = useState(null);
   const [listOpen, setListOpen] = useState(false); // the selected cell's dropdown list (Excel data validation) is open
@@ -254,7 +244,8 @@ export default function SheetGrid({
   useEffect(() => {
     setRows(grid.rows);
     setHiddenKeys(new Set(grid.hiddenKeys || []));
-    setColWidths(readWidths(grid));
+    setColWidths({});
+    setRowHeights({});
     setCopied(null);
     setRowMenu(null);
     setHistory({ undo: [], redo: [] });
@@ -311,48 +302,117 @@ export default function SheetGrid({
     if (!dd?.strict || !text) return value;
     return dd.list.find((item) => item.toLowerCase() === text.toLowerCase()) ?? null;
   };
-  const fileWidthOf = (i) => colPx(format?.columns[i]?.width ?? format?.defaultColWidth);
-  const widthOf = (h) => (colWidths[h.key] ?? fileWidthOf(h.index)) * zoom;
+  // Width in pixels as Excel shows it: the file's width times the pixels per width unit measured from
+  // Excel (format.pxPerChar), or Excel's usual 7 px per character + padding when it isn't known
+  const fileWidthOf = (i) => {
+    const chars = format?.columns[i]?.width ?? format?.defaultColWidth;
+    return format?.pxPerChar ? Math.round((chars ?? DEFAULT_WIDTH_CHARS) * format.pxPerChar) : colPx(chars);
+  };
+  const baseWidthOf = (h) => colWidths[h.key] ?? fileWidthOf(h.index);
+  const widthOf = (h) => baseWidthOf(h) * zoom;
+  const baseHeightOf = (row) => rowHeights[row.row] ?? ptPx(row.height || format?.defaultRowHeight || DEFAULT_HEIGHT_PT);
+  const rowHeightOf = (row) => baseHeightOf(row) * zoom;
 
-  // Drag a column letter's right edge to change its width in this view (like Excel); double-click
-  // the edge to go back to the Excel file's width
-  function startResize(e, h) {
+  // ---- Resizing, like Excel: drag the right edge of a column letter or the bottom edge of a row
+  // number; double-click it to fit the content. When several whole columns (rows) are selected and
+  // the edge of one of them is dragged, they all get that size. Saved to the Excel file. ----
+  const resizeTargets = (kind, index) => {
+    if (kind === 'col') {
+      const whole = isRange && range.r1 === 0 && range.r2 === rows.length - 1;
+      return whole && index >= range.c1 && index <= range.c2 ? cols.slice(range.c1, range.c2 + 1) : [cols[index]];
+    }
+    const whole = isRange && range.c1 === 0 && range.c2 === cols.length - 1;
+    return whole && index >= range.r1 && index <= range.r2 ? rows.slice(range.r1, range.r2 + 1) : [rows[index]];
+  };
+
+  async function saveSizes(kind, targets, request, before) {
+    const isCol = kind === 'col';
+    const save = isCol ? onColumnWidths : onRowHeights;
+    if (!save) return; // e.g. the Summary: the size only applies on screen
+    let what;
+    if (isCol) what = targets.length > 1 ? `columns ${targets[0].letter}:${targets[targets.length - 1].letter}` : `column ${targets[0].letter}`;
+    else what = targets.length > 1 ? `${targets.length} rows` : `row ${targets[0].row}`;
+    const set = isCol ? setColWidths : setRowHeights;
+    const keyOf = (t) => (isCol ? t.key : t.row);
+    setStatus(request.autofit ? `Fitting ${what} to the content…` : `Saving the size of ${what}…`);
+    try {
+      const saved = isCol
+        ? (await save({ columns: targets.map((t) => t.letter), ...request })).widths
+        : (await save({ rows: targets.map((t) => t.row), ...request })).heights;
+      set((m) => {
+        const next = { ...m };
+        targets.forEach((t) => { const v = saved?.[isCol ? t.letter : t.row]; if (v) next[keyOf(t)] = v; });
+        return next;
+      });
+      setStatus(`Size of ${what} saved to the Excel file`);
+    } catch (err) {
+      set((m) => {
+        const next = { ...m };
+        targets.forEach((t, i) => { if (before[i] === undefined) delete next[keyOf(t)]; else next[keyOf(t)] = before[i]; });
+        return next;
+      });
+      setStatus(`Couldn't change the size of ${what}: ${err.message}`, true);
+    }
+  }
+
+  function startResize(e, kind, index) {
     e.preventDefault();
     e.stopPropagation();
-    resizing.current = { key: h.key, startX: e.clientX, startWidth: colWidths[h.key] ?? fileWidthOf(h.index) };
-    document.body.classList.add('xl-resizing');
+    // A column letter can also be dragged to move the column: switch that off while resizing, or the
+    // browser starts moving the column instead of resizing it
+    const cell = e.currentTarget.parentElement;
+    const wasDraggable = cell.draggable;
+    cell.draggable = false;
+    const isCol = kind === 'col';
+    const targets = resizeTargets(kind, index);
+    const own = isCol ? cols[index] : rows[index];
+    const set = isCol ? setColWidths : setRowHeights;
+    const keyOf = (t) => (isCol ? t.key : t.row);
+    const before = targets.map((t) => (isCol ? colWidths[t.key] : rowHeights[t.row]));
+    const start = isCol ? baseWidthOf(own) : baseHeightOf(own);
+    const startAt = isCol ? e.clientX : e.clientY;
+    resizing.current = { size: start };
+    document.body.classList.add(isCol ? 'xl-resizing' : 'xl-resizing-row');
     const onMove = (ev) => {
       const r = resizing.current;
       if (!r) return;
-      const width = Math.max(MIN_COL_PX, Math.round(r.startWidth + (ev.clientX - r.startX) / zoom));
-      setColWidths((w) => (w[r.key] === width ? w : { ...w, [r.key]: width }));
+      r.size = Math.max(isCol ? MIN_COL_PX : MIN_ROW_PX, Math.round(start + ((isCol ? ev.clientX : ev.clientY) - startAt) / zoom));
+      set((m) => {
+        if (targets.every((t) => m[keyOf(t)] === r.size)) return m;
+        const next = { ...m };
+        targets.forEach((t) => { next[keyOf(t)] = r.size; });
+        return next;
+      });
     };
     const onUp = () => {
+      const r = resizing.current;
       resizing.current = null;
-      document.body.classList.remove('xl-resizing');
+      cell.draggable = wasDraggable;
+      document.body.classList.remove('xl-resizing', 'xl-resizing-row');
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
-      setColWidths((w) => { saveWidths(grid, w); return w; });
+      if (r && Math.abs(r.size - start) >= 2) saveSizes(kind, targets, isCol ? { width: r.size } : { height: r.size }, before);
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   }
-  function resetWidth(e, h) {
+
+  function autofit(e, kind, index) {
     e.preventDefault();
     e.stopPropagation();
-    setColWidths((w) => {
-      const { [h.key]: _removed, ...rest } = w;
-      saveWidths(grid, rest);
-      return rest;
-    });
+    const targets = resizeTargets(kind, index);
+    const before = targets.map((t) => (kind === 'col' ? colWidths[t.key] : rowHeights[t.row]));
+    saveSizes(kind, targets, { autofit: true }, before);
   }
-  function resetAllWidths() {
-    setColWidths({});
-    saveWidths(grid, {});
-    setColMenu(null);
+
+  // The corner box selects the whole sheet (as in Excel), e.g. to resize every column or row at once
+  function selectAll() {
+    if (editing || !rows.length || !cols.length) return;
+    keepScroll.current = true;
+    setAnchor({ r: rows.length - 1, c: cols.length - 1 });
+    setSel({ r: 0, c: 0 });
+    scrollRef.current?.focus({ preventScroll: true });
   }
-  const customWidths = cols.some((h) => colWidths[h.key] !== undefined);
-  const rowHeightOf = (row) => ptPx(row.height || format?.defaultRowHeight || DEFAULT_HEIGHT_PT) * zoom;
   const headerHeight = ptPx(format?.headerHeight || 30) * zoom;
 
   // Merged areas as grid positions { r0, c0, r1, c1 }. row.merges ({ col, span, rows }) is on the
@@ -1222,9 +1282,6 @@ export default function SheetGrid({
           {excelLinkFor && (
             <button type="button" role="menuitem" onClick={() => openInExcel(colMenu.c)}>Open in Excel at column {cols[colMenu.c]?.letter}</button>
           )}
-          {customWidths && (
-            <button type="button" role="menuitem" onClick={resetAllWidths}>Reset column widths</button>
-          )}
           {grid.canDeleteColumns && (
             <button type="button" role="menuitem" className="xl-context__danger" disabled={!!saving} onClick={deleteColumn}>
               Delete column {cols[colMenu.c]?.letter}
@@ -1297,7 +1354,7 @@ export default function SheetGrid({
           </colgroup>
           <thead>
             <tr className="xl-letters">
-              <th className="xl-corner" />
+              <th className="xl-corner" title="Select the whole sheet" onMouseDown={(e) => { if (e.button === 0) selectAll(); }} />
               {cols.map((h, c) => (
                 <th
                   key={h.letter}
@@ -1330,9 +1387,10 @@ export default function SheetGrid({
                   {h.letter}
                   <span
                     className="xl-col-resize"
-                    title={`Drag to change the width of column ${h.letter} (your view only). Double-click to reset.`}
-                    onMouseDown={(e) => { if (e.button === 0) startResize(e, h); }}
-                    onDoubleClick={(e) => resetWidth(e, h)}
+                    title={`Drag to change the width of column ${h.letter}${onColumnWidths ? ' in the Excel file' : ''}. Double-click to fit it to the content.`}
+                    onMouseDown={(e) => { if (e.button === 0) startResize(e, 'col', c); }}
+                    onClick={(e) => e.stopPropagation()}
+                    onDoubleClick={(e) => autofit(e, 'col', c)}
                   />
                 </th>
               ))}
@@ -1377,6 +1435,13 @@ export default function SheetGrid({
                       />
                     )}
                     {row.row}
+                    <span
+                      className="xl-row-resize"
+                      title={`Drag to change the height of row ${row.row}${onRowHeights ? ' in the Excel file' : ''}. Double-click to fit it to the text.`}
+                      onMouseDown={(e) => { if (e.button === 0) startResize(e, 'row', r); }}
+                      onClick={(e) => e.stopPropagation()}
+                      onDoubleClick={(e) => autofit(e, 'row', r)}
+                    />
                     {grid.editable && row.editable === false && (
                       <span className="xl-lock" title="View only: you can't change this row" aria-label="View only">🔒</span>
                     )}

@@ -60,6 +60,20 @@ export async function pasteGridCells({ workbook, sheet, targets }) {
   return data;
 }
 
+// Column widths in the Excel file: `columns` (letters) all get `width` (pixels at 100% zoom), or each is
+// fit to its content (`autofit`). Returns { widths: { N: 419, … } } in pixels.
+export async function setGridColumnWidths({ workbook, sheet, columns, width, autofit }) {
+  const { data } = await api.put('/strategy/grid/column-width', { workbook, sheet, columns, width, autofit });
+  return data;
+}
+
+// Row heights in the Excel file: sheet `rows` (row numbers) all get `height` (pixels at 100% zoom), or
+// each is fit to its text (`autofit`). Returns { heights: { 5: 60, … } } in pixels.
+export async function setGridRowHeights({ workbook, sheet, rows, height, autofit }) {
+  const { data } = await api.put('/strategy/grid/row-height', { workbook, sheet, rows, height, autofit });
+  return data;
+}
+
 // Column changes in the Excel file: action 'insert' (column + side + header), 'update' (today's
 // update column) or 'delete' (admins). `expectedHeader` makes the server refuse when the column moved.
 // A delete of a column with values fails with code CONFIRM_DELETE until `confirm` is sent.
