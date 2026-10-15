@@ -1,4 +1,6 @@
-const { getUsedRange, insertColumn, deleteColumn, writeCell, readRange, getColumnWidth, moveColumnCopy } = require('./excel.service');
+const {
+  getUsedRange, insertColumn, deleteColumn, writeCell, readRange, getColumnWidth, moveColumnCopy, setColumnWidths, setRowHeights,
+} = require('./excel.service');
 const { listVisibleSheets, mapColumns, columnLetter, oneLine, cellReader, invalidateScorecard } = require('./scorecard.service');
 const { analyzeSheet, letterToIndex } = require('./grid.service');
 const formatService = require('./format.service');
@@ -324,4 +326,70 @@ async function renameColumnForUser(wb, user, { sheet, column, header, expectedHe
   };
 }
 
-module.exports = { insertColumnForUser, addUpdateColumnForUser, deleteColumnForUser, renameColumnForUser, moveColumnForUser, styleToFormat };
+// ---- Column widths and row heights (everyone: they change how the sheet looks, not its data) ----
+// The grid works in pixels at 100% zoom, Graph in points (1 px = 0.75 pt)
+const pxToPoints = (px) => Math.round(px * 0.75 * 100) / 100;
+const pointsToPx = (pt) => Math.round(pt / 0.75);
+const clampPx = (px, min, max) => Math.min(max, Math.max(min, Math.round(Number(px))));
+
+async function requireVisibleSheet(wb, sheet) {
+  const sheets = await listVisibleSheets(wb);
+  if (!sheets.some((s) => s.name === sheet)) throw httpError(404, `Sheet "${sheet}" not found in "${wb.name}".`);
+}
+
+/**
+ * Sets the width of `columns` (letters) in the Excel file, like dragging the edge of column letters in
+ * Excel (several selected columns all get the same width), or fits each to its content (`autofit`,
+ * like double-clicking the edge). `width` is in pixels. Returns { widths: { N: 419, … } } (pixels).
+ */
+async function setColumnWidthsForUser(wb, user, { sheet, columns, width, autofit = false }) {
+  await requireVisibleSheet(wb, sheet);
+  const letters = [...new Set(columns)];
+  const points = autofit ? undefined : pxToPoints(clampPx(width, 4, 1500));
+  const result = await setColumnWidths(wb, sheet, letters, { points, autofit });
+  const widths = {};
+  for (const letter of letters) {
+    const px = pointsToPx(result[letter] ?? points);
+    widths[letter] = px;
+    formatService.updateCachedWidth(wb, sheet, letterToIndex(letter), px);
+  }
+  const label = letters.length > 1 ? `${letters[0]}:${letters[letters.length - 1]}` : letters[0];
+  logger.info(`${user.email} ${autofit ? 'autofit' : `set to ${pointsToPx(points)}px`} column(s) ${label} in ${wb.name} / ${sheet}`);
+  return {
+    widths,
+    change: { target: `${sheet}!${label}`, details: { workbook: wb.name, columns: letters, ...(autofit ? { autofit: true } : { width: pointsToPx(points) }) } },
+  };
+}
+
+/**
+ * Sets the height of sheet `rows` (row numbers) in the Excel file, like dragging the bottom edge of
+ * row numbers in Excel, or fits each to its text (`autofit`, like double-clicking the edge).
+ * `height` is in pixels. Returns { heights: { 5: 60, … } } (pixels).
+ */
+async function setRowHeightsForUser(wb, user, { sheet, rows, height, autofit = false }) {
+  await requireVisibleSheet(wb, sheet);
+  const numbers = [...new Set(rows.map(Number))].filter((n) => Number.isInteger(n) && n >= 1);
+  const points = autofit ? undefined : pxToPoints(clampPx(height, 4, 550));
+  const result = await setRowHeights(wb, sheet, numbers, { points, autofit });
+  const heights = {};
+  for (const n of numbers) {
+    const pt = result[n] ?? points;
+    heights[n] = pointsToPx(pt);
+    formatService.updateCachedRowHeight(wb, sheet, n, pt);
+  }
+  invalidateScorecard(wb, sheet);
+  const label = numbers.length > 1 ? `${numbers.length} rows (${numbers[0]}–${numbers[numbers.length - 1]})` : `row ${numbers[0]}`;
+  logger.info(`${user.email} ${autofit ? 'autofit' : `set to ${pointsToPx(points)}px`} ${label} in ${wb.name} / ${sheet}`);
+  return {
+    heights,
+    change: {
+      target: `${sheet}!${numbers[0]}:${numbers[numbers.length - 1]}`,
+      details: { workbook: wb.name, rows: numbers.length, ...(autofit ? { autofit: true } : { height: pointsToPx(points) }) },
+    },
+  };
+}
+
+module.exports = {
+  insertColumnForUser, addUpdateColumnForUser, deleteColumnForUser, renameColumnForUser, moveColumnForUser,
+  setColumnWidthsForUser, setRowHeightsForUser, styleToFormat,
+};

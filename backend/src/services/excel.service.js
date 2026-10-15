@@ -236,10 +236,12 @@ const BATCH_SIZE = 20; // Graph's limit per $batch call
 /**
  * Sends many small workbook requests as Graph JSON batches (20 per call) instead of one by one, in the
  * workbook's session. Inside a batch each request waits for the one before it (dependsOn), so they
- * run in order like separate calls. Throws if any of them fails.
+ * run in order like separate calls. Throws if any of them fails; otherwise returns the response
+ * bodies in the order of `requests`.
  */
 async function runBatched(wb, requests) {
-  if (!requests.length) return;
+  const bodies = [];
+  if (!requests.length) return bodies;
   const client = await getAppGraphClient();
   const sid = await sessionFor(wb);
   const headers = { 'Content-Type': 'application/json', ...(sid && { 'workbook-session-id': sid }) };
@@ -258,7 +260,59 @@ async function runBatched(wb, requests) {
       const message = failed.body?.error?.message || `status ${failed.status}`;
       throw Object.assign(new Error(`Excel refused a formatting step (${message})`), { statusCode: failed.status });
     }
+    responses.sort((a, b) => Number(a.id) - Number(b.id)).forEach((r) => bodies.push(r.body));
   }
+  return bodies;
+}
+
+// Consecutive runs of numbers: [5, 6, 7, 10] -> [[5, 7], [10, 10]]
+function runsOf(numbers) {
+  const sorted = [...new Set(numbers)].sort((a, b) => a - b);
+  const runs = [];
+  for (const n of sorted) {
+    const last = runs[runs.length - 1];
+    if (last && n === last[1] + 1) last[1] = n;
+    else runs.push([n, n]);
+  }
+  return runs;
+}
+const letterOf = (n) => { let s = ''; for (let x = n; x > 0; x = Math.floor((x - 1) / 26)) s = String.fromCharCode(65 + ((x - 1) % 26)) + s; return s; };
+const numberOf = (letters) => letters.split('').reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
+
+/**
+ * Column widths, like dragging (or double-clicking) the edge of column letters in Excel.
+ * `letters` e.g. ["N", "O", "P"]; `points` sets them all to that width, or `autofit` fits each to its
+ * content. Returns each column's width afterwards: { N: 314.25, … } (points).
+ */
+async function setColumnWidths(wb, sheetName, letters, { points, autofit = false }) {
+  const sheet = sheetPath(wb, sheetName);
+  const ranges = runsOf(letters.map(numberOf)).map(([a, b]) => `${letterOf(a)}:${letterOf(b)}`);
+  return write(wb, sheetName, async () => {
+    await runBatched(wb, ranges.map((r) => (autofit
+      ? { method: 'POST', url: `${sheet}/range(address='${r}')/format/autofitColumns`, body: {} }
+      : { method: 'PATCH', url: `${sheet}/range(address='${r}')/format`, body: { columnWidth: points } })));
+    if (!autofit) return Object.fromEntries(letters.map((l) => [l, points]));
+    const read = await runBatched(wb, letters.map((l) => ({ method: 'GET', url: `${sheet}/range(address='${l}1')/format?$select=columnWidth` })));
+    return Object.fromEntries(letters.map((l, i) => [l, read[i]?.columnWidth]));
+  });
+}
+
+/**
+ * Row heights, like dragging (or double-clicking) the bottom edge of row numbers in Excel.
+ * `rows` are sheet row numbers; `points` sets them all, or `autofit` fits each to its text.
+ * Returns each row's height afterwards: { 5: 45, … } (points).
+ */
+async function setRowHeights(wb, sheetName, rows, { points, autofit = false }) {
+  const sheet = sheetPath(wb, sheetName);
+  const ranges = runsOf(rows).map(([a, b]) => `${a}:${b}`);
+  return write(wb, sheetName, async () => {
+    await runBatched(wb, ranges.map((r) => (autofit
+      ? { method: 'POST', url: `${sheet}/range(address='${r}')/format/autofitRows`, body: {} }
+      : { method: 'PATCH', url: `${sheet}/range(address='${r}')/format`, body: { rowHeight: points } })));
+    if (!autofit) return Object.fromEntries(rows.map((n) => [n, points]));
+    const read = await runBatched(wb, rows.map((n) => ({ method: 'GET', url: `${sheet}/range(address='A${n}')/format?$select=rowHeight` })));
+    return Object.fromEntries(rows.map((n, i) => [n, read[i]?.rowHeight]));
+  });
 }
 
 /**
@@ -390,5 +444,7 @@ module.exports = {
   readRange,
   getColumnWidth,
   moveColumnCopy,
+  setColumnWidths,
+  setRowHeights,
   explainGraphError,
 };

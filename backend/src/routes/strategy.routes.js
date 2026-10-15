@@ -110,6 +110,25 @@ router.post('/grid/columns',
   validate,
   strategy.changeGridColumns
 );
+// Column widths / row heights in the Excel file (everyone; like dragging edges in Excel), or autofit
+router.put('/grid/column-width',
+  body('sheet').isString().trim().isLength({ min: 1, max: 100 }),
+  body('columns').isArray({ min: 1, max: 200 }),
+  body('columns.*').isString().matches(/^[A-Z]{1,3}$/),
+  body('width').if(body('autofit').not().equals(true)).isFloat({ min: 1, max: 5000 }).toFloat(),
+  body('autofit').optional().isBoolean({ strict: true }),
+  validate,
+  strategy.setGridColumnWidths
+);
+router.put('/grid/row-height',
+  body('sheet').isString().trim().isLength({ min: 1, max: 100 }),
+  body('rows').isArray({ min: 1, max: 2000 }),
+  body('rows.*').isInt({ min: 1, max: 1048576 }).toInt(),
+  body('height').if(body('autofit').not().equals(true)).isFloat({ min: 1, max: 2000 }).toFloat(),
+  body('autofit').optional().isBoolean({ strict: true }),
+  validate,
+  strategy.setGridRowHeights
+);
 // Personal "hide rows" in the user's own view
 router.put('/grid/hidden-rows',
   body('sheet').isString().trim().isLength({ min: 1, max: 100 }),

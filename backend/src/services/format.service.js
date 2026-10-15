@@ -30,11 +30,42 @@ function parseInWorker(buffer) {
   });
 }
 
+/**
+ * Pixels per width unit in this workbook. Column widths in the file are in "characters" of the
+ * workbook's default font (7 px each for Calibri 11, 8 for Calibri 12…), which the file doesn't state,
+ * so it's measured once: Excel's own width (points) of one column with a set width, divided by that
+ * width. Added to every sheet as `pxPerChar`; the grid draws widths with it, so they match Excel.
+ */
+async function measurePxPerChar(wb, sheets) {
+  for (const [name, sheet] of Object.entries(sheets)) {
+    const index = (sheet.columns || []).findIndex((c) => c?.width && !c.hidden);
+    if (index === -1) continue;
+    try {
+      // Required here, not at the top: excel.service is loaded after this file in some scripts
+      const { getColumnWidth } = require('./excel.service');
+      let letter = '';
+      for (let n = index + 1; n > 0; n = Math.floor((n - 1) / 26)) letter = String.fromCharCode(65 + ((n - 1) % 26)) + letter;
+      const points = await getColumnWidth(wb, name, letter);
+      const ratio = Math.round(points / 0.75 / sheet.columns[index].width);
+      return ratio >= 5 && ratio <= 12 ? ratio : null;
+    } catch (err) {
+      logger.warn(`Could not measure column widths of "${wb.name || wb.itemId}": ${err.message}`);
+      return null;
+    }
+  }
+  return null;
+}
+
 function refresh(wb) {
   if (!loading.has(wb.itemId)) {
     const started = Date.now();
     loading.set(wb.itemId, downloadWorkbook(wb)
       .then(parseInWorker)
+      .then(async (sheets) => {
+        const pxPerChar = await measurePxPerChar(wb, sheets);
+        for (const sheet of Object.values(sheets)) sheet.pxPerChar = pxPerChar;
+        return sheets;
+      })
       .then((sheets) => {
         cached.set(wb.itemId, { at: Date.now(), sheets });
         logger.info(`Loaded Excel formatting of "${wb.name || wb.itemId}" (${Object.keys(sheets).length} sheets) in ${Date.now() - started} ms`);
@@ -87,6 +118,20 @@ function updateCachedStyle(wb, sheetName, rowNumber, columnIndex, format) {
     sheet.cells[rowNumber][columnIndex] = index;
   }
   return { before, after };
+}
+
+// Records a column width set through the system, given in pixels (kept in the file's width units)
+function updateCachedWidth(wb, sheetName, columnIndex, px) {
+  const sheet = sheetOf(wb, sheetName);
+  if (!sheet) return;
+  const width = sheet.pxPerChar ? px / sheet.pxPerChar : Math.max(0, (px - 5) / 7);
+  sheet.columns[columnIndex] = { ...(sheet.columns[columnIndex] || { hidden: false }), width };
+}
+
+// Records a row height set through the system (points, as in the file)
+function updateCachedRowHeight(wb, sheetName, rowNumber, points) {
+  const sheet = sheetOf(wb, sheetName);
+  if (sheet) sheet.rowHeights[rowNumber] = points;
 }
 
 // Records a merge/unmerge made through the system in the cached merged areas.
@@ -179,4 +224,6 @@ function moveColumn(wb, sheetName, from, insertAt) {
   for (const group of [...(sheet.conditional || []), ...(sheet.dropdowns || [])]) group.areas = group.areas.map(moveArea);
 }
 
-module.exports = { getSheetFormat, getTabColor, updateCachedStyle, updateCachedMerge, warmUp, forget, shiftColumns, moveColumn };
+module.exports = {
+  getSheetFormat, getTabColor, updateCachedStyle, updateCachedWidth, updateCachedRowHeight, updateCachedMerge, warmUp, forget, shiftColumns, moveColumn,
+};

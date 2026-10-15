@@ -255,6 +255,8 @@ async function getGridForUser(wb, user, { sheet, department, refresh = false } =
     showGridLines: format.showGridLines,
     defaultRowHeight: format.defaultRowHeight,
     defaultColWidth: format.defaultColWidth,
+    // Pixels per width unit, measured from Excel (null: the grid uses Excel's usual 7 px + 5 px padding)
+    pxPerChar: format.pxPerChar || null,
     styles: format.styles,
     headerHeight: format.rowHeights[headerRowNumber] || null,
     // Excel's conditional formatting (colors that depend on the value) and dropdown lists, by grid column

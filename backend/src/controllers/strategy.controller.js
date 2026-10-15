@@ -142,6 +142,24 @@ async function changeGridColumns(req, res) {
   res.json(result);
 }
 
+// Column widths in the Excel file (dragging the edge of column letters), or autofit
+async function setGridColumnWidths(req, res) {
+  const wb = await workbookFor(req);
+  const { sheet, columns, width, autofit } = req.body;
+  const { change, ...result } = await columnService.setColumnWidthsForUser(wb, req.user, { sheet, columns, width, autofit });
+  await audit(req, 'sheet.column_width', change);
+  res.json(result);
+}
+
+// Row heights in the Excel file (dragging the bottom edge of row numbers), or autofit
+async function setGridRowHeights(req, res) {
+  const wb = await workbookFor(req);
+  const { sheet, rows, height, autofit } = req.body;
+  const { change, ...result } = await columnService.setRowHeightsForUser(wb, req.user, { sheet, rows, height, autofit });
+  await audit(req, 'sheet.row_height', change);
+  res.json(result);
+}
+
 async function mergeGridCells(req, res) {
   const wb = await workbookFor(req);
   const user = await userService.getUserForAccess(req.user.id);
@@ -173,5 +191,5 @@ async function getMap(req, res) {
 }
 
 module.exports = {
-  listWorkbooks, listSheets, getWorkbook, getScoreboard, getGrid, setHiddenRows, updateGridCell, formatGridCell, mergeGridCells, changeGridColumns, pasteGridCells, getMap,
+  listWorkbooks, listSheets, getWorkbook, getScoreboard, getGrid, setHiddenRows, updateGridCell, formatGridCell, mergeGridCells, changeGridColumns, setGridColumnWidths, setGridRowHeights, pasteGridCells, getMap,
 };
