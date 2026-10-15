@@ -57,6 +57,7 @@ async function getGrid(req, res) {
     data.canInsertColumns = true;
     data.canDeleteColumns = user.role === 'admin';
     data.canRenameColumns = user.role === 'admin';
+    data.canFormatHeaders = user.role === 'admin';
     await auditView(req, 'Excel grid', wb, data, { rows: data.rows.length });
   }
   res.json(data);
@@ -106,9 +107,10 @@ async function updateGridCell(req, res) {
 async function formatGridCell(req, res) {
   const wb = await workbookFor(req);
   const user = await userService.getUserForAccess(req.user.id);
-  const { sheet, row, column, identity, format } = req.body;
-  const { change, ...result } = await withDeniedAudit(req, wb, 'format', () => (
-    gridService.formatCellForUser(wb, user, { sheet, row, column, identity, format })
+  const { sheet, row, column, identity, format, header } = req.body;
+  const { change, ...result } = await withDeniedAudit(req, wb, 'format', () => (header
+    ? gridService.formatHeaderForUser(wb, user, { sheet, column, format })
+    : gridService.formatCellForUser(wb, user, { sheet, row, column, identity, format })
   ));
   await audit(req, 'sheet.cell_format', change);
   res.json(result);

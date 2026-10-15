@@ -396,6 +396,33 @@ async function formatCellForUser(wb, user, { sheet, row, column, identity, forma
 }
 
 /**
+ * Changes the formatting of a column's header cell (e.g. its fill color). Admins only: the header row
+ * is shared by every department. Returns the cell's new style, like formatCellForUser.
+ */
+async function formatHeaderForUser(wb, user, { sheet, column, format }) {
+  if (user.role !== 'admin') throw httpError(403, 'Only admins can format the header row, because it is shared by every department.');
+  await requireSheet(wb, sheet);
+  const range = await getUsedRange(wb, sheet, { refresh: true });
+  const layout = analyzeSheet(range);
+  if (!layout) throw httpError(422, `"${sheet}" can't be formatted here.`);
+  const col = letterToIndex(column) - layout.firstCol;
+  if (col < 0 || col >= layout.headers.length) throw httpError(400, `Column ${column} isn't part of the sheet.`);
+  const row = layout.firstRow + layout.headerRow;
+  const address = `${column}${row}`;
+
+  await writeCellFormat(wb, sheet, address, format);
+  const { after } = updateCachedStyle(wb, sheet, row, layout.firstCol + col, format);
+  logger.info(`${user.email} formatted header ${wb.name} / ${sheet}!${address}: ${JSON.stringify(format)}`);
+  return {
+    row,
+    column,
+    header: true,
+    style: after,
+    change: { target: `${sheet}!${address}`, details: { workbook: wb.name, column: `${layout.headers[col].label} (header)`, format } },
+  };
+}
+
+/**
  * Merges a range like Excel (e.g. R130:T130 across, or A129:A131 down), or unmerges a merged cell.
  * Rules on top of the usual edit checks for the top-left cell:
  *  - every row in the range must be one the user may edit (led by their department; admins any),
@@ -633,6 +660,7 @@ module.exports = {
   pasteForUser,
   updateCellForUser,
   formatCellForUser,
+  formatHeaderForUser,
   mergeCellsForUser,
   // Sheet-reading helpers shared with rowid.service / access-rule.service
   analyzeSheet,

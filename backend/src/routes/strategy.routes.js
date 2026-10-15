@@ -44,9 +44,11 @@ router.patch('/grid/cell',
 const FONTS = ['Calibri', 'Cambria', 'Aptos', 'Arial', 'Segoe UI', 'Times New Roman', 'Verdana', 'Tahoma'];
 const HEX_COLOR = /^#[0-9A-Fa-f]{6}$/;
 
+// One cell's formatting, or (`header: true`, admins) the column's header cell
 router.patch('/grid/format',
   body('sheet').isString().trim().isLength({ min: 1, max: 100 }),
-  body('row').isInt({ min: 2 }).toInt(),
+  body('header').optional().isBoolean({ strict: true }),
+  body('row').if(body('header').not().equals('true')).isInt({ min: 2 }).toInt(),
   body('column').isString().matches(/^[A-Z]{1,3}$/),
   body('identity.lead').optional().isString(),
   body('identity.name').optional().isString(),
@@ -115,7 +117,7 @@ router.put('/grid/column-width',
   body('sheet').isString().trim().isLength({ min: 1, max: 100 }),
   body('columns').isArray({ min: 1, max: 200 }),
   body('columns.*').isString().matches(/^[A-Z]{1,3}$/),
-  body('width').if(body('autofit').not().equals(true)).isFloat({ min: 1, max: 5000 }).toFloat(),
+  body('width').if(body('autofit').not().equals('true')).isFloat({ min: 1, max: 5000 }).toFloat(),
   body('autofit').optional().isBoolean({ strict: true }),
   validate,
   strategy.setGridColumnWidths
@@ -124,7 +126,7 @@ router.put('/grid/row-height',
   body('sheet').isString().trim().isLength({ min: 1, max: 100 }),
   body('rows').isArray({ min: 1, max: 2000 }),
   body('rows.*').isInt({ min: 1, max: 1048576 }).toInt(),
-  body('height').if(body('autofit').not().equals(true)).isFloat({ min: 1, max: 2000 }).toFloat(),
+  body('height').if(body('autofit').not().equals('true')).isFloat({ min: 1, max: 2000 }).toFloat(),
   body('autofit').optional().isBoolean({ strict: true }),
   validate,
   strategy.setGridRowHeights
