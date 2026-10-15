@@ -277,6 +277,8 @@ export function TrendChart({ snapshots, selected, onSelect, onOpen }) {
           ? `Completion of each project, taken from the percentage stated in its notes.${excluded ? ` ${excluded} other projects have not reported a percentage yet, so they are not shown.` : ''}`
           : `Average completion of the projects in each ${groupDef.label === 'Perspective' ? 'perspective' : groupDef.label}. Projects that state no percentage count as 0% until they report one, and completed projects count as 100%.`}
         {' Every line starts at 0% and keeps the highest percentage reported so far, so it only goes up: a week whose note gives no percentage keeps the previous one.'}
+        {' To report progress, start the week’s update with the percentage, e.g. “40% - Ongoing coordination with PLDT”.'}
+        {' For cost-reduction projects whose KPI target is a percentage, the savings reported count against that target: “5% reduction” with a “>10%” target is 50%.'}
         {grayMeaning && ` Only the ${groupDef.plural} whose completion changed between updates are drawn (listed in the table below).`}
         {n === 1 && ' The sheet has one dated update so far; the trend fills in as weekly update columns are added.'}
       </p>

@@ -275,6 +275,8 @@ function SheetView({ workbookId, sheet, workbook, gridState, sheets, onSheetChan
             <kbd>Alt</kbd>+<kbd>Enter</kbd> adds a line break, <kbd>Esc</kbd> cancels. Click a row number or column letter
             to select it; <kbd>Shift</kbd>+click to select more. Right-click row numbers (or <kbd>Ctrl</kbd>+<kbd>9</kbd>) to hide
             rows in your own view. Grey italic values are carried down from the row where they start.
+            In a weekly update, start with the completion percentage (e.g. <em>40% - Ongoing coordination</em>) so the
+            Dashboard&apos;s Trend Over Time shows the progress.
           </p>
         </>
       )}
