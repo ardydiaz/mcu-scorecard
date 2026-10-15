@@ -38,8 +38,8 @@ export async function updateGridCell({ workbook, sheet, row, column, value, prev
 
 // Changes one cell's formatting in the Excel file (e.g. { bold: true } or { fillColor: '#FFFF00' }).
 // Returns { style } as the cell now looks.
-export async function formatGridCell({ workbook, sheet, row, column, identity, format }) {
-  const { data } = await api.patch('/strategy/grid/format', { workbook, sheet, row, column, identity, format });
+export async function formatGridCell({ workbook, sheet, row, column, identity, format, header }) {
+  const { data } = await api.patch('/strategy/grid/format', { workbook, sheet, row, column, identity, format, header });
   return data;
 }
 

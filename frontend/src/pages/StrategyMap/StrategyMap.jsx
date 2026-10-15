@@ -235,6 +235,15 @@ function SheetView({ workbookId, sheet, workbook, gridState, sheets, onSheetChan
     }
   }
 
+  // Formats a column's header cell (admins); returns { style }
+  async function formatHeader({ col, format }) {
+    try {
+      return await formatGridCell({ workbook: workbookId, sheet: grid.sheet, column: grid.headers[col].letter, header: true, format });
+    } catch (err) {
+      throw toGridError(err);
+    }
+  }
+
   return (
     <div className="sheet-view">
       {noDepartment ? (
@@ -250,6 +259,7 @@ function SheetView({ workbookId, sheet, workbook, gridState, sheets, onSheetChan
             grid={grid}
             onSaveCell={saveCell}
             onFormatCell={formatCell}
+            onFormatHeader={grid.canFormatHeaders ? formatHeader : undefined}
             onMergeCells={mergeCells}
             onHideRows={hideRows}
             onColumnWidths={resizeColumns}

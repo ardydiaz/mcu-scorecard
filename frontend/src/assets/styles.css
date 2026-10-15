@@ -1766,3 +1766,6 @@ a.btn { text-decoration: none; }
 /* While resizing: keep the resize cursor everywhere and don't select text */
 body.xl-resizing, body.xl-resizing * { cursor: col-resize !important; user-select: none !important; }
 body.xl-resizing-row, body.xl-resizing-row * { cursor: row-resize !important; user-select: none !important; }
+
+/* A header cell selected for formatting (click it; admins) */
+.xl-head--sel { outline: 2px solid #107c41; outline-offset: -2px; }

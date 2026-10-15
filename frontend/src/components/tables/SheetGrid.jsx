@@ -183,7 +183,7 @@ function ruleMatches(rule, value) {
 const clipboardCell = (v) => (/[\t\n\r"]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
 
 export default function SheetGrid({
-  grid, onSaveCell, onFormatCell, onMergeCells, onHideRows, onColumns, onColumnWidths, onRowHeights, onPasteCells, excelLinkFor, sheets = [], onSheetChange,
+  grid, onSaveCell, onFormatCell, onFormatHeader, onMergeCells, onHideRows, onColumns, onColumnWidths, onRowHeights, onPasteCells, excelLinkFor, sheets = [], onSheetChange,
 }) {
   const format = grid.format;
   const [zoomPct, setZoomPct] = useState(() => readZoom(format?.zoom || 100));
@@ -203,6 +203,10 @@ export default function SheetGrid({
   const [colWidths, setColWidths] = useState({});
   const [rowHeights, setRowHeights] = useState({});
   const resizing = useRef(null); // set while a column or row edge is dragged
+  // A header cell (row 1) selected for formatting, as a grid column index (admins, onFormatHeader);
+  // header styles changed here since the grid was loaded, by sheet column index
+  const [headSel, setHeadSel] = useState(null);
+  const [headerStyles, setHeaderStyles] = useState({});
   // Dragging a column letter onto another moves the column in the Excel file: { from, to, side }
   const [drag, setDrag] = useState(null);
   const [listOpen, setListOpen] = useState(false); // the selected cell's dropdown list (Excel data validation) is open
@@ -246,6 +250,8 @@ export default function SheetGrid({
     setHiddenKeys(new Set(grid.hiddenKeys || []));
     setColWidths({});
     setRowHeights({});
+    setHeadSel(null);
+    setHeaderStyles({});
     setCopied(null);
     setRowMenu(null);
     setHistory({ undo: [], redo: [] });
@@ -459,6 +465,7 @@ export default function SheetGrid({
 
   // Range selected with Shift+click / Shift+arrows: from `anchor` to `sel`
   const [anchor, setAnchor] = useState(null);
+  useEffect(() => { setHeadSel(null); }, [sel, anchor]);
   const range = anchor && {
     r1: Math.min(anchor.r, sel.r), r2: Math.max(anchor.r, mergeAt(sel.r, sel.c)?.r1 ?? sel.r),
     c1: Math.min(anchor.c, sel.c), c2: Math.max(anchor.c, mergeAt(sel.r, sel.c)?.c1 ?? sel.c),
@@ -1024,7 +1031,28 @@ export default function SheetGrid({
   const canFormat = (row, i) => grid.editable && !!onFormatCell && row.editable !== false && !row.inherited.includes(i);
   const selectedFormattable = !!current && !!currentCol && canFormat(current, currentCol.index);
 
+  const headStyleOf = (h) => headerStyles[h.index] ?? style(format?.columns[h.index]?.headerStyle);
+
+  // Formats the selected header cell in the Excel file (admins)
+  async function applyHeaderFormat(changes) {
+    const h = cols[headSel];
+    if (!h || !onFormatHeader || saving) return;
+    setSaving('header');
+    setStatus(`Formatting the header of column ${h.letter}…`);
+    try {
+      const result = await onFormatHeader({ col: h.index, format: changes });
+      setHeaderStyles((m) => ({ ...m, [h.index]: result.style }));
+      setStatus(`Formatted the header of column ${h.letter} in Excel`);
+    } catch (err) {
+      setStatus(`Header of column ${h.letter}: ${err.message}`, true);
+    } finally {
+      setSaving(null);
+      scrollRef.current?.focus({ preventScroll: true });
+    }
+  }
+
   async function applyFormat(changes) {
+    if (headSel !== null) return applyHeaderFormat(changes);
     if (!current || !currentCol || saving) return;
     if (!selectedFormattable) {
       setStatus(current.inherited.includes(currentCol.index)
@@ -1232,7 +1260,9 @@ export default function SheetGrid({
     }
   }
 
-  const formulaText = editing ? draft : current && currentCol ? current.cells[currentCol.index] : '';
+  const formulaText = editing ? draft
+    : headSel !== null && cols[headSel] ? cols[headSel].label
+      : current && currentCol ? current.cells[currentCol.index] : '';
   const count = grid.totalRows > grid.rows.length
     ? `${grid.rows.length} of ${grid.totalRows} records found`
     : `${grid.rows.length} rows`;
@@ -1316,10 +1346,10 @@ export default function SheetGrid({
       )}
       {onFormatCell && (
         <SheetRibbon
-          style={selectedStyle}
-          disabled={!selectedFormattable || !!saving || !!editing}
+          style={headSel !== null ? headStyleOf(cols[headSel]) : selectedStyle}
+          disabled={headSel !== null ? !!saving || !!editing : !selectedFormattable || !!saving || !!editing}
           onApply={applyFormat}
-          merge={onMergeCells ? { ...mergeState, onMerge: mergeCells } : null}
+          merge={onMergeCells && headSel === null ? { ...mergeState, onMerge: mergeCells } : null}
           history={{
             canUndo: history.undo.length > 0 && !saving && !editing,
             canRedo: history.redo.length > 0 && !saving && !editing,
@@ -1329,7 +1359,7 @@ export default function SheetGrid({
         />
       )}
       <div className="xl-formula">
-        <div className="xl-namebox" title="Selected cell">{address}</div>
+        <div className="xl-namebox" title="Selected cell">{headSel !== null && cols[headSel] ? `${cols[headSel].letter}1` : address}</div>
         <span className="xl-fx" aria-hidden="true">fx</span>
         <div
           className="xl-formula__text"
@@ -1402,9 +1432,21 @@ export default function SheetGrid({
                 return (
                   <th
                     key={h.letter}
-                    className={grid.canRenameColumns && onColumns ? 'xl-head xl-head--editable' : 'xl-head'}
-                    style={cellCss(style(format?.columns[h.index]?.headerStyle), zoom)}
-                    title={grid.canRenameColumns && onColumns ? 'Double-click to rename this column' : undefined}
+                    className={[
+                      'xl-head',
+                      grid.canRenameColumns && onColumns && 'xl-head--editable',
+                      headSel === c && 'xl-head--sel',
+                    ].filter(Boolean).join(' ')}
+                    style={cellCss(headStyleOf(h), zoom)}
+                    title={[
+                      onFormatHeader && 'Click to select this header and format it (fill color, font…) with the ribbon',
+                      grid.canRenameColumns && onColumns && 'double-click to rename this column',
+                    ].filter(Boolean).join('; ') || undefined}
+                    onMouseDown={(e) => {
+                      if (e.button !== 0 || !onFormatHeader || editing) return;
+                      setHeadSel(c);
+                      scrollRef.current?.focus({ preventScroll: true });
+                    }}
                     onDoubleClick={() => renameColumn(c)}
                   >
                     <div className="xl-clip" style={{ maxHeight: headerHeight }}>{h.label}</div>
