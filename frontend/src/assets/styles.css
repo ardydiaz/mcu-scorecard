@@ -1558,6 +1558,8 @@ a.btn { text-decoration: none; }
 .sidebar__chevron { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.2s ease; }
 .sidebar__group--open .sidebar__chevron { transform: rotate(180deg); }
 .sidebar__group-items { display: flex; flex-direction: column; gap: 2px; padding: 4px 0 6px 28px; }
+/* A closed group hides its items: needed because `display: flex` above would override the hidden attribute */
+.sidebar__group-items[hidden] { display: none; }
 .sidebar__sublink { padding: 8px 12px; border-radius: 8px; color: rgba(226, 211, 236, 0.75); font-size: 13.5px; font-weight: 600; line-height: 1.35; text-decoration: none; transition: background 0.15s, color 0.15s; }
 .sidebar__sublink:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
 .sidebar__sublink--active { color: #fff; }
