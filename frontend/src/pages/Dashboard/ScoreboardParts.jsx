@@ -65,6 +65,10 @@ export function DetailDialog({ detail, onClose }) {
 
   const list = detail ? [...detail.list].sort((a, b) => tierOrder(a.tier, b.tier) || a.row - b.row) : [];
   const perspectives = [...new Set(list.map((d) => d.persp))];
+  // Legend of the two tags on each project, drawn with the same tag styles: traffic light (status
+  // colors, as in Overall Status) and stage. Only the values in this list are shown.
+  const lights = CATEGORIES.filter((c) => list.some((d) => category(d) === c.key));
+  const stages = [...new Set(list.map((d) => d.stage))];
   return (
     // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
     <dialog ref={ref} className="sb-dialog" aria-labelledby="sb-dialog-title" onClose={onClose}
@@ -78,6 +82,14 @@ export function DetailDialog({ detail, onClose }) {
             </div>
             <button type="button" className="sb-dialog__close" onClick={onClose}>Close</button>
           </div>
+          {list.length > 0 && (
+            <div className="sb-dialog__legend" aria-label="What the tag colors mean">
+              <b>Traffic light</b>
+              {lights.map((c) => <span key={c.key} className="sb-flag" style={{ '--c': c.color }}>{c.label}</span>)}
+              <b>Stage</b>
+              {stages.map((s) => <span key={s} className="sb-stage" style={{ background: stageColor(s) }}>{STAGE_LABEL[s] || s}</span>)}
+            </div>
+          )}
           <div className="sb-dialog__body">
             {!list.length && <p className="sb-empty">{detail.empty || 'No projects to show.'}</p>}
             {list.length > 8
@@ -99,12 +111,24 @@ export function DetailDialog({ detail, onClose }) {
 }
 
 // ---------- 01 Overall status ----------
+// Status colors as a legend (shown right of the section's description); the same colors mark these
+// statuses across the dashboard (cards, tier rings, project tags). "No traffic light" only when used.
+export function StatusLegend({ projects }) {
+  const shown = CATEGORIES.filter((c) => c.key !== 'unreported' || projects.some((d) => category(d) === 'unreported'));
+  return (
+    <div className="sb-chartlegend sb-statuslegend" aria-label="Status colors">
+      {shown.map((c) => <span key={c.key}><i style={{ background: c.color }} />{c.label}</span>)}
+    </div>
+  );
+}
+
 export function StatusCards({ projects, onOpen }) {
   const total = projects.length;
   const lists = Object.fromEntries(CATEGORIES.map((c) => [c.key, projects.filter((d) => category(d) === c.key)]));
   const shown = CATEGORIES.filter((c) => c.key !== 'unreported' || lists.unreported.length);
   const pct = shares(shown.map((c) => lists[c.key].length), total);
   return (
+    <>
     <div className="sb-cards">
       <button type="button" className="sb-card sb-card--total" onClick={() => onOpen({ title: 'All projects', sub: `${total} projects`, list: projects })}>
         <span className="sb-card__n">{total}</span>
@@ -122,6 +146,7 @@ export function StatusCards({ projects, onOpen }) {
         );
       })}
     </div>
+    </>
   );
 }
 
@@ -186,6 +211,79 @@ export function TierRing({ tier, projects, total, onOpen }) {
         ))}
       </div>
     </div>
+  );
+}
+
+// ---------- 03 Worth raising at Execom ----------
+// Horizontal bars, one per issue, in order of urgency (not sorted by size). Each bar sits on a light
+// track that stands for all `total` projects in view, so its length is its share of the projects;
+// the count and share are in a right-aligned column. Color shows urgency (act now / watch / for
+// information), always with a legend and a label, never color alone. The whole row is the click
+// target and opens the projects behind the bar. A project can have several issues, so the shares
+// don't add up to 100%.
+const WATCH_LEVELS = [
+  { key: 'now', label: 'Act now', tones: ['stop'] },
+  { key: 'watch', label: 'Watch', tones: ['warn', 'waiting', 'sourcing', 'china'] },
+  { key: 'info', label: 'For information', tones: ['testing', 'note', 'muted'] },
+];
+const levelOf = (tone) => (WATCH_LEVELS.find((l) => l.tones.includes(tone)) || WATCH_LEVELS[2]).key;
+
+// Urgency colors used by the bars, as a legend (shown right of the section's description)
+export function WatchLegend({ items }) {
+  const levels = WATCH_LEVELS.filter((l) => items.some((w) => levelOf(w.tone) === l.key));
+  if (!levels.length) return null;
+  return (
+    <div className="sb-chartlegend sb-watchlegend" aria-label="Urgency colors">
+      {levels.map((l) => <span key={l.key}><i style={{ background: `var(--bar-${l.key})` }} />{l.label}</span>)}
+    </div>
+  );
+}
+
+export function WatchBars({ items, total, onOpen }) {
+  const share = (n) => {
+    if (!total) return '';
+    const p = (n / total) * 100;
+    return p > 0 && p < 1 ? '<1%' : `${Math.round(p)}%`;
+  };
+  return (
+    <>
+      <div className="sb-bars">
+        <ul aria-label="Issues worth raising, with the number and share of projects">
+          {items.map((w) => {
+            const n = w.list.length;
+            const level = levelOf(w.tone);
+            const levelLabel = WATCH_LEVELS.find((l) => l.key === level).label;
+            return (
+              <li key={w.title}>
+                <button
+                  type="button"
+                  className={`sb-bar sb-bar--${level}`}
+                  onClick={() => onOpen({ title: w.title, list: w.list })}
+                  aria-label={`${levelLabel}: ${w.title} (${share(n)} of ${total} projects). Show the ${n} project${n === 1 ? '' : 's'}.`}
+                >
+                  <span className="sb-bar__label">{w.label}</span>
+                  <span className="sb-bar__track">
+                    <span className="sb-bar__fill" style={{ width: total ? `max(4px, ${(n / total) * 100}%)` : '4px' }} />
+                  </span>
+                  <span className="sb-bar__n">{n}{total ? <em> · {share(n)}</em> : null}</span>
+                  <span className="sb-bar__tip" role="tooltip">
+                    <b>{w.title}</b>
+                    <span>{w.text.length > 160 ? `${w.text.slice(0, 160)}…` : w.text}</span>
+                    <small>{levelLabel} · {total ? `${n} of ${total} projects (${share(n)}). ` : ''}Click to see the projects</small>
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+      {total > 0 && (
+        <p className="sb-bars__note">
+          Each track is all {total} projects shown; the colored part is the share with that issue. A project can appear in more than
+          one bar, so the percentages don’t add up to 100%.
+        </p>
+      )}
+    </>
   );
 }
 

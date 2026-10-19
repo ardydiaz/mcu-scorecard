@@ -61,6 +61,8 @@ export const STAGE_COLORS = {
   Sourcing: 'var(--sb-st-sourcing)',
   Waiting: 'var(--sb-st-waiting)',
   'Project China': 'var(--sb-st-china)',
+  // Its own neutral, so it isn't confused with Review (both used to be the same grey)
+  'In progress': 'var(--sb-st-progress)',
 };
 export const stageColor = (stage) => STAGE_COLORS[stage] || 'var(--sb-st-review)';
 export const STAGE_LABEL = { Waiting: 'Waiting on others', 'Project China': 'In Project China' };
@@ -122,6 +124,7 @@ export function watchItems(projects, asOf) {
   if (flagged.length) {
     items.push({
       tone: 'stop',
+      label: 'Behind or at risk',
       title: `${plural(flagged.length, 'project is', 'projects are')} reported behind or at risk`,
       text: names(flagged, (d) => ` (${d.status.toLowerCase()})`),
       list: flagged,
@@ -135,6 +138,7 @@ export function watchItems(projects, asOf) {
   if (thisMonth.length) {
     items.push({
       tone: 'stop',
+      label: 'Due this month',
       title: `${plural(thisMonth.length, 'project is', 'projects are')} due this month`,
       text: names(thisMonth, (d) => (d.waiting ? ` (waiting on ${d.waiting})` : '')),
       list: thisMonth,
@@ -148,6 +152,7 @@ export function watchItems(projects, asOf) {
   if (overdue.length) {
     items.push({
       tone: 'stop',
+      label: 'Past the completion date',
       title: `${plural(overdue.length, 'project is', 'projects are')} past the completion date`,
       text: names(overdue, (d) => ` (due ${fmtWhen(d.done)})`),
       list: overdue,
@@ -158,6 +163,7 @@ export function watchItems(projects, asOf) {
   if (cost.length) {
     items.push({
       tone: 'warn',
+      label: '0% savings so far',
       title: `${plural(cost.length, 'cost-reduction project shows', 'cost-reduction projects show')} 0% savings so far`,
       text: `${cost[0].kpi}${cost[0].target ? ` (target ${cost[0].target.replace(/\n/g, ', ')})` : ''}: ${names(cost)}`,
       list: cost,
@@ -168,6 +174,7 @@ export function watchItems(projects, asOf) {
   if (china.length) {
     items.push({
       tone: 'china',
+      label: 'Folded into Project China',
       title: `${plural(china.length, 'project is', 'projects are')} folded into Project China`,
       text: 'Their progress now depends on that umbrella project.',
       list: china,
@@ -178,22 +185,23 @@ export function watchItems(projects, asOf) {
   if (sourcing.length) {
     items.push({
       tone: 'sourcing',
+      label: 'Still sourcing suppliers',
       title: `${plural(sourcing.length, 'project is', 'projects are')} still sourcing suppliers`,
       text: names(sourcing, (d) => ` (launched ${fmtWhen(d.launch)})`),
       list: sourcing,
     });
   }
 
-  open.filter((d) => d.stage === 'Waiting' && !thisMonth.includes(d)).forEach((d) => {
+  const waiting = open.filter((d) => d.stage === 'Waiting' && !thisMonth.includes(d));
+  if (waiting.length) {
     items.push({
       tone: 'waiting',
-      title: `${shortName(d.name)} is waiting${d.waiting ? ` on ${d.waiting}` : ' on others'}`,
-      text: monthDate(d.done)
-        ? `Completion is set for ${fmtWhen(d.done)}.`
-        : `The completion date in the sheet is “${d.done || 'not set'}”, so there is no fixed finish yet.`,
-      list: [d],
+      label: 'Waiting on others',
+      title: `${plural(waiting.length, 'project is', 'projects are')} waiting on others`,
+      text: names(waiting, (d) => (d.waiting ? ` (waiting on ${d.waiting})` : '')),
+      list: waiting,
     });
-  });
+  }
 
   const horizon = new Date(asOf.getTime() + 90 * 864e5);
   const soon = open
@@ -202,6 +210,7 @@ export function watchItems(projects, asOf) {
   if (soon.length) {
     items.push({
       tone: 'testing',
+      label: 'Due within 90 days',
       title: `${plural(soon.length, 'project is', 'projects are')} due within 90 days`,
       text: names(soon, (d) => ` (${fmtWhen(d.done)})`),
       list: soon,
@@ -212,6 +221,7 @@ export function watchItems(projects, asOf) {
   if (noted.length) {
     items.push({
       tone: 'note',
+      label: 'With Execom notes',
       title: `${plural(noted.length, 'project has', 'projects have')} Execom notes`,
       text: names(noted),
       list: noted,
@@ -222,6 +232,7 @@ export function watchItems(projects, asOf) {
   if (unreported.length) {
     items.push({
       tone: 'muted',
+      label: 'No traffic light',
       title: `${plural(unreported.length, 'project has', 'projects have')} no traffic light`,
       text: 'The Traffic Light cell is empty in the sheet, so they are not counted as on track, behind or at risk.',
       list: unreported,

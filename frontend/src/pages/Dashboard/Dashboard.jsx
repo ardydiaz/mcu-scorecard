@@ -8,7 +8,7 @@ import ErrorMessage from '../../components/common/ErrorMessage';
 import SheetSelect from '../../components/forms/SheetSelect';
 import WorkbookSelect from '../../components/forms/WorkbookSelect';
 import { CATEGORIES, category, expandSnapshots, snapshotDate, tiersOf, watchItems } from './scoreboardData';
-import { DetailDialog, StatusCards, TierRing, TrendChart, fmtLong, snapLabel } from './ScoreboardParts';
+import { DetailDialog, StatusCards, StatusLegend, TierRing, TrendChart, WatchBars, WatchLegend, fmtLong, snapLabel } from './ScoreboardParts';
 
 /**
  * Dashboard: the scoreboard of the selected scorecard file and sheet (the default file first),
@@ -131,7 +131,10 @@ export default function Dashboard() {
         <>
           <section className="sb-section">
             <div className="sb-head"><span>01</span><h2>Overall Status</h2></div>
-            <p className="sb-sub">Projects counted by the traffic light reported in the sheet. Select a card to see the projects behind it.</p>
+            <div className="sb-subrow">
+              <p className="sb-sub">Projects counted by the traffic light reported in the sheet. Select a card to see the projects behind it.</p>
+              <StatusLegend projects={projects} />
+            </div>
             <StatusCards projects={projects} onOpen={setDetail} />
           </section>
 
@@ -156,15 +159,12 @@ export default function Dashboard() {
 
           <section className="sb-section">
             <div className="sb-head"><span>03</span><h2>Worth Raising at Execom</h2></div>
-            <p className="sb-sub">Traffic lights show status as reported. These notes point to risks and dependencies worth discussing, as of {fmtLong(asOf)}.</p>
+            <div className="sb-subrow">
+              <p className="sb-sub">Traffic lights show status as reported. These notes point to risks and dependencies worth discussing, as of {fmtLong(asOf)}.</p>
+              {watch.length > 0 && <WatchLegend items={watch} />}
+            </div>
             {watch.length === 0 ? <p className="sb-empty">Nothing stands out: no project is behind, due soon, waiting or stalled.</p> : (
-              <div className="sb-watch">
-                {watch.map((w) => (
-                  <button key={w.title} type="button" className={`sb-w sb-w--${w.tone}`} onClick={() => setDetail({ title: w.title, sub: w.text, list: w.list })}>
-                    <b>{w.title}</b>
-                  </button>
-                ))}
-              </div>
+              <WatchBars items={watch} total={projects.length} onOpen={setDetail} />
             )}
           </section>
 
@@ -175,11 +175,6 @@ export default function Dashboard() {
               and select it to view that week’s data.
             </p>
             <TrendChart snapshots={snapshots} selected={snap.label} onSelect={select} onOpen={setDetail} />
-            <p className="sb-fn">
-              Source: “{data.sheet}” in {fileName ? `“${fileName}”` : 'the selected file'}, weekly update columns. Traffic lights and tiers are taken as entered.
-              Completion percentages come from the notes. A project counts as completed when its note says so, and is then counted as completed only, not as on track.
-              {!data.stageColumn && ' Stages are estimated from each note’s wording; add a “Stage” column (and optionally “Waiting On”) to the sheet to set them exactly.'}
-            </p>
           </section>
         </>
       )}
