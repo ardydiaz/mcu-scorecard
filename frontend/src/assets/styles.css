@@ -1762,3 +1762,21 @@ body.xl-resizing-row, body.xl-resizing-row * { cursor: row-resize !important; us
 .sb-tierbars .apexcharts-tooltip { border-radius: 8px; box-shadow: 0 10px 24px rgba(59, 10, 92, 0.18); }
 .sb-tierbars__tiers { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 6px; }
 .sb-tierbars__tiers b { color: var(--text); }
+
+
+/* 01 overall status: a donut in each card (CardDonut.jsx); the card title opens the full list */
+/* One row of equal columns (5 cards, or 6 with No traffic light); wraps on smaller screens */
+.sb-cards--donut { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 14px; }
+.sb-cards--donut .sb-card { min-width: 0; justify-content: flex-start; padding: 10px 10px 14px; cursor: default; }
+@media (max-width: 1100px) { .sb-cards--donut { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .sb-cards--donut { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 440px) { .sb-cards--donut { grid-template-columns: minmax(0, 1fr); } }
+.sb-cards--donut .sb-card:hover { transform: none; }
+.sb-carddonut { width: 100%; min-height: 196px; }
+.sb-carddonut .apexcharts-pie-area { cursor: pointer; }
+.sb-carddonut__bar { height: 22px; color: var(--muted); font-size: 11px; text-align: center; }
+.sb-carddonut__bar button { padding: 2px 8px; border: 0; border-radius: 999px; background: var(--sb-tint); color: #57177a; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.sb-card__open { display: flex; flex-direction: column; align-items: center; width: 100%; margin-top: 2px; padding: 6px 4px 0; border: 0; border-radius: 8px; background: none; color: inherit; font: inherit; cursor: pointer; }
+.sb-card__open:hover .sb-card__l, .sb-card__open:focus-visible .sb-card__l { color: var(--c); }
+.sb-card__open:focus-visible { outline: 2px solid #57177a; outline-offset: 2px; }
+.sb-cards--donut .sb-card__l { margin-top: 0; }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CATEGORIES, STAGE_LABEL, TREND_GROUPS, category, fmtWhen, shares, shortName, stageColor, tierOrder, trendSeries,
 } from './scoreboardData';
+import { StatusCardDonut, TotalCardDonut } from './CardDonut';
 
 export const fmtLong = (d) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 export const snapLabel = (s) => (s.date ? fmtLong(new Date(`${s.date}T00:00:00`)) : s.label);
@@ -127,26 +128,31 @@ export function StatusCards({ projects, onOpen }) {
   const lists = Object.fromEntries(CATEGORIES.map((c) => [c.key, projects.filter((d) => category(d) === c.key)]));
   const shown = CATEGORIES.filter((c) => c.key !== 'unreported' || lists.unreported.length);
   const pct = shares(shown.map((c) => lists[c.key].length), total);
+  // Each card holds a donut (ApexCharts, CardDonut.jsx): the Total card shows all statuses; a status
+  // card shows its share and drills into perspectives. The card's title opens its full project list.
   return (
-    <>
-    <div className="sb-cards">
-      <button type="button" className="sb-card sb-card--total" onClick={() => onOpen({ title: 'All projects', sub: `${total} projects`, list: projects })}>
-        <span className="sb-card__n">{total}</span>
-        <span className="sb-card__l">Total projects</span>
-      </button>
+    <div className="sb-cards sb-cards--donut">
+      <div className="sb-card sb-card--total">
+        <TotalCardDonut cats={shown} lists={lists} total={total} onOpen={onOpen} />
+        <button type="button" className="sb-card__open" onClick={() => onOpen({ title: 'All projects', sub: `${total} projects`, list: projects })}>
+          <span className="sb-card__l">Total projects</span>
+          <span className="sb-card__sub"><b>{total}</b> projects · see all</span>
+        </button>
+      </div>
       {shown.map((c, i) => {
         const n = lists[c.key].length;
         return (
-          <button key={c.key} type="button" className="sb-card" style={{ '--c': c.color }}
-            onClick={() => onOpen({ title: c.label, sub: `${n} of ${total} projects`, list: lists[c.key], empty: c.empty })}>
-            <span className="sb-card__n">{pct[i]}%</span>
-            <span className="sb-card__l">{c.label}</span>
-            <span className="sb-card__sub"><b>{n}</b> of {total} projects</span>
-          </button>
+          <div key={c.key} className="sb-card" style={{ '--c': c.color }}>
+            <StatusCardDonut cat={c} list={lists[c.key]} total={total} pct={pct[i]} onOpen={onOpen} />
+            <button type="button" className="sb-card__open"
+              onClick={() => onOpen({ title: c.label, sub: `${n} of ${total} projects`, list: lists[c.key], empty: c.empty })}>
+              <span className="sb-card__l">{c.label}</span>
+              <span className="sb-card__sub"><b>{n}</b> of {total} projects · see all</span>
+            </button>
+          </div>
         );
       })}
     </div>
-    </>
   );
 }
 
