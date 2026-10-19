@@ -17,9 +17,10 @@ const ICONS = {
 const Icon = ({ name }) => <svg className="sidebar__icon" viewBox="0 0 24 24" aria-hidden="true">{ICONS[name]}</svg>;
 
 const links = [
-  { to: '/dashboard', label: 'Dashboard', icon: 'dashboard' },
+  { to: '/dashboard', label: 'Strategy Scoreboard', icon: 'dashboard' },
+  { to: '/strategy-map', label: 'Strategy Scorecard', icon: 'sheet' },
   { to: '/strategy', label: 'Strategy Map', icon: 'map' },
-  { to: '/strategy-map', label: 'Strategy Scoreboard', icon: 'sheet' },
+  
 ];
 
 // Dropdown groups (after the main links): a heading that opens and closes its sub-pages

@@ -150,69 +150,7 @@ export function StatusCards({ projects, onOpen }) {
   );
 }
 
-// ---------- 02 Status by tier ----------
-const R = 76;
-const CIRC = 2 * Math.PI * R;
-
-export function TierRing({ tier, projects, total, onOpen }) {
-  const [hover, setHover] = useState(null);
-  const list = projects.filter((d) => d.tier === tier);
-  const n = list.length;
-  const segs = CATEGORIES.map((c) => ({ ...c, list: list.filter((d) => category(d) === c.key) })).filter((s) => s.list.length);
-  const pct = shares(segs.map((s) => s.list.length), n);
-  const completed = list.filter((d) => category(d) === 'completed').length;
-  const flagged = list.filter((d) => ['behind', 'atrisk'].includes(category(d)));
-  const name = tier === '–' ? 'No tier' : `Class ${tier}`;
-
-  let offset = 0;
-  const arcs = segs.map((s, i) => {
-    const len = (s.list.length / n) * CIRC;
-    const draw = segs.length > 1 ? Math.max(len - 2.5, 1) : len;
-    const arc = { ...s, pct: pct[i], draw, offset: -offset };
-    offset += len;
-    return arc;
-  });
-  const active = arcs.find((a) => a.key === hover);
-  const open = (s) => onOpen({ title: `${name}: ${s.label.toLowerCase()}`, sub: `${s.list.length} of ${n} ${name} projects`, list: s.list });
-
-  return (
-    <div className={`sb-tiercard${flagged.length ? ' sb-tiercard--attn' : ''}`}>
-      <div className={`sb-ring${hover ? ' sb-ring--hover' : ''}`}>
-        <svg viewBox="0 0 200 200" role="group" aria-label={`${name} status`}>
-          <circle className="sb-ring__bg" cx="100" cy="100" r={R} />
-          {arcs.map((a) => (
-            <circle key={a.key} className={`sb-ring__seg${hover === a.key ? ' is-active' : ''}`} cx="100" cy="100" r={R}
-              stroke={a.color} strokeDasharray={`${a.draw} ${CIRC - a.draw}`} strokeDashoffset={a.offset} transform="rotate(-90 100 100)"
-              tabIndex={0} role="button" aria-label={`${name}, ${a.label.toLowerCase()}, ${a.list.length} of ${n} projects`}
-              onMouseEnter={() => setHover(a.key)} onMouseLeave={() => setHover(null)}
-              onFocus={() => setHover(a.key)} onBlur={() => setHover(null)}
-              onClick={() => open(a)} onKeyDown={activate(() => open(a))}>
-              <title>{`${a.label}: ${a.list.length}`}</title>
-            </circle>
-          ))}
-        </svg>
-        <div className="sb-ring__center">
-          {active ? (
-            <><b style={{ color: active.color }}>{active.pct}%</b><span>{active.label}</span><em>{active.list.length} of {n}</em></>
-          ) : (
-            <><b>{n ? Math.round((completed / n) * 100) : 0}%</b><span>completed</span><em>{completed} of {n}</em></>
-          )}
-        </div>
-      </div>
-      <button type="button" className="sb-tiername" onClick={() => onOpen({ title: `${name} projects`, sub: `${n} of ${total} projects`, list })}>
-        <span>{name}</span><small>{n} project{n === 1 ? '' : 's'}</small>
-      </button>
-      <div className="sb-chips">
-        {arcs.map((a) => (
-          <button key={a.key} type="button" className="sb-chip" onClick={() => open(a)}
-            onMouseEnter={() => setHover(a.key)} onMouseLeave={() => setHover(null)}>
-            <i style={{ background: a.color }} />{a.label} <b>{a.list.length}</b>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
+// ---------- 02 Status by tier: see TierBars.jsx ----------
 
 // ---------- 03 Worth raising at Execom ----------
 // Horizontal bars, one per issue, in order of urgency (not sorted by size). Each bar sits on a light
@@ -221,12 +159,12 @@ export function TierRing({ tier, projects, total, onOpen }) {
 // information), always with a legend and a label, never color alone. The whole row is the click
 // target and opens the projects behind the bar. A project can have several issues, so the shares
 // don't add up to 100%.
-const WATCH_LEVELS = [
+export const WATCH_LEVELS = [
   { key: 'now', label: 'Act now', tones: ['stop'] },
   { key: 'watch', label: 'Watch', tones: ['warn', 'waiting', 'sourcing', 'china'] },
   { key: 'info', label: 'For information', tones: ['testing', 'note', 'muted'] },
 ];
-const levelOf = (tone) => (WATCH_LEVELS.find((l) => l.tones.includes(tone)) || WATCH_LEVELS[2]).key;
+export const levelOf = (tone) => (WATCH_LEVELS.find((l) => l.tones.includes(tone)) || WATCH_LEVELS[2]).key;
 
 // Urgency colors used by the bars, as a legend (shown right of the section's description)
 export function WatchLegend({ items }) {
@@ -236,54 +174,6 @@ export function WatchLegend({ items }) {
     <div className="sb-chartlegend sb-watchlegend" aria-label="Urgency colors">
       {levels.map((l) => <span key={l.key}><i style={{ background: `var(--bar-${l.key})` }} />{l.label}</span>)}
     </div>
-  );
-}
-
-export function WatchBars({ items, total, onOpen }) {
-  const share = (n) => {
-    if (!total) return '';
-    const p = (n / total) * 100;
-    return p > 0 && p < 1 ? '<1%' : `${Math.round(p)}%`;
-  };
-  return (
-    <>
-      <div className="sb-bars">
-        <ul aria-label="Issues worth raising, with the number and share of projects">
-          {items.map((w) => {
-            const n = w.list.length;
-            const level = levelOf(w.tone);
-            const levelLabel = WATCH_LEVELS.find((l) => l.key === level).label;
-            return (
-              <li key={w.title}>
-                <button
-                  type="button"
-                  className={`sb-bar sb-bar--${level}`}
-                  onClick={() => onOpen({ title: w.title, list: w.list })}
-                  aria-label={`${levelLabel}: ${w.title} (${share(n)} of ${total} projects). Show the ${n} project${n === 1 ? '' : 's'}.`}
-                >
-                  <span className="sb-bar__label">{w.label}</span>
-                  <span className="sb-bar__track">
-                    <span className="sb-bar__fill" style={{ width: total ? `max(4px, ${(n / total) * 100}%)` : '4px' }} />
-                  </span>
-                  <span className="sb-bar__n">{n}{total ? <em> · {share(n)}</em> : null}</span>
-                  <span className="sb-bar__tip" role="tooltip">
-                    <b>{w.title}</b>
-                    <span>{w.text.length > 160 ? `${w.text.slice(0, 160)}…` : w.text}</span>
-                    <small>{levelLabel} · {total ? `${n} of ${total} projects (${share(n)}). ` : ''}Click to see the projects</small>
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-      {total > 0 && (
-        <p className="sb-bars__note">
-          Each track is all {total} projects shown; the colored part is the share with that issue. A project can appear in more than
-          one bar, so the percentages don’t add up to 100%.
-        </p>
-      )}
-    </>
   );
 }
 
