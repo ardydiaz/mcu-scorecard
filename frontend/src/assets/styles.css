@@ -1780,3 +1780,11 @@ body.xl-resizing-row, body.xl-resizing-row * { cursor: row-resize !important; us
 .sb-card__open:hover .sb-card__l, .sb-card__open:focus-visible .sb-card__l { color: var(--c); }
 .sb-card__open:focus-visible { outline: 2px solid #57177a; outline-offset: 2px; }
 .sb-cards--donut .sb-card__l { margin-top: 0; }
+
+/* A status card with no projects: a plain light ring (drawn without ApexCharts), same size as the donuts */
+.sb-carddonut__empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; box-sizing: border-box;
+  width: 136px; height: 136px; margin: 17px auto; border: 19px solid #ece5f2; border-radius: 50%;
+}
+.sb-carddonut__empty b { color: #1f1a24; font-size: 26px; font-weight: 800; line-height: 1; }
+.sb-carddonut__empty span { margin-top: 3px; color: #6b6478; font-size: 11px; font-weight: 700; }

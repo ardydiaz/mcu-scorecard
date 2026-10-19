@@ -34,11 +34,14 @@ const baseOptions = (onSelect) => ({
   states: { hover: { filter: { type: 'darken', value: 0.9 } }, active: { filter: { type: 'none' } } },
 });
 
-const donutCentre = ({ value, label, valueSize = '26px' }) => ({
+// `size` = the hole; a thicker ring (smaller hole) leaves room for the % labels in the perspective view
+const donutCentre = ({ value, label, valueSize = '26px', size = '72%' }) => ({
   pie: {
     expandOnClick: false,
+    // Slice labels sit in the middle of the ring band (offset 0); none on slices too thin to fit one
+    dataLabels: { offset: 0, minAngleToShowLabel: 24 },
     donut: {
-      size: '72%',
+      size,
       labels: {
         show: true,
         name: { show: true, fontSize: '11px', fontWeight: 700, color: '#6b6478', offsetY: 16 },
@@ -68,21 +71,23 @@ export function StatusCardDonut({ cat, list, total, pct, onOpen }) {
   }, [list]);
 
   const ready = !!color(cat.color);
+  const pctOf = (v) => `${n ? Math.round((v / n) * 100) : 0}%`;
   let chart = null;
-  if (ready && !drilled) {
-    // With no projects, only the light track (a 0 slice makes ApexCharts draw the ring in its default grey)
-    const empty = n === 0;
+  if (ready && !drilled && n > 0) {
+    // No 0-size slice ever (ApexCharts then draws the ring in its default grey): a status that covers
+    // every project is drawn as its color only; a status with none is drawn below without ApexCharts
+    const all = n >= total;
     chart = {
-      series: empty ? [Math.max(total, 1)] : [n, Math.max(total - n, 0)],
+      series: all ? [n] : [n, total - n],
       options: {
-        ...baseOptions(() => { if (n) setDrilled(true); }),
-        labels: empty ? ['Other projects'] : [cat.label, 'Other projects'],
-        colors: empty ? [TRACK] : [color(cat.color), TRACK],
+        ...baseOptions(() => setDrilled(true)),
+        labels: all ? [cat.label] : [cat.label, 'Other projects'],
+        colors: all ? [color(cat.color)] : [color(cat.color), TRACK],
         plotOptions: donutCentre({ value: `${pct}%`, label: `${n} of ${total}` }),
         tooltip: { y: { formatter: (v) => `${v} of ${total} projects` } },
       },
     };
-  } else if (ready) {
+  } else if (ready && drilled) {
     let next = 1;
     const colors = groups.map((g) => {
       const fixed = PERSPECTIVE_VARS.find(([re]) => re.test(g.name));
@@ -97,9 +102,23 @@ export function StatusCardDonut({ cat, list, total, pct, onOpen }) {
         }),
         labels: groups.map((g) => g.name),
         colors,
-        plotOptions: donutCentre({ value: String(n), label: 'by perspective' }),
-        legend: { show: true, position: 'bottom', fontSize: '11px', markers: { size: 5 }, itemMargin: { horizontal: 4, vertical: 0 } },
-        tooltip: { y: { formatter: (v) => `${v} of ${n} ${cat.label.toLowerCase()} projects` } },
+        plotOptions: donutCentre({ value: String(n), label: 'by perspective', size: '58%', valueSize: '24px' }),
+        // Share of this status's projects: on the slice (when it's big enough to read) and in the legend
+        dataLabels: {
+          enabled: true,
+          formatter: (val) => `${Math.round(val)}%`,
+          style: { fontSize: '10.5px', fontWeight: 700 },
+          dropShadow: { enabled: true, blur: 2, opacity: 0.45 },
+        },
+        legend: {
+          show: true,
+          position: 'bottom',
+          fontSize: '11px',
+          markers: { size: 5 },
+          itemMargin: { horizontal: 4, vertical: 0 },
+          formatter: (name, opts) => `${name} ${pctOf(opts.w.globals.series[opts.seriesIndex])}`,
+        },
+        tooltip: { y: { formatter: (v) => `${v} of ${n} ${cat.label.toLowerCase()} projects (${pctOf(v)})` } },
       },
     };
   }
@@ -111,6 +130,11 @@ export function StatusCardDonut({ cat, list, total, pct, onOpen }) {
           ? <button type="button" onClick={() => setDrilled(false)}>‹ Back</button>
           : <span>{n ? 'Select to see by perspective' : 'No projects'}</span>}
       </div>
+      {ready && n === 0 && (
+        <div className="sb-carddonut__empty" role="img" aria-label={`${cat.label}: 0 of ${total} projects`}>
+          <b>0%</b><span>0 of {total}</span>
+        </div>
+      )}
       {chart && (
         <Chart key={drilled ? 'perspective' : 'share'} type="donut" series={chart.series} options={chart.options} height={drilled ? 210 : 170} />
       )}

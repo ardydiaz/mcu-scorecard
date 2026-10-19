@@ -17,7 +17,7 @@ const ICONS = {
 const Icon = ({ name }) => <svg className="sidebar__icon" viewBox="0 0 24 24" aria-hidden="true">{ICONS[name]}</svg>;
 
 const links = [
-  { to: '/dashboard', label: 'Strategy Scoreboard', icon: 'dashboard' },
+  { to: '/dashboard', label: 'Scoreboard Dashboard', icon: 'dashboard' },
   { to: '/strategy-map', label: 'Strategy Scorecard', icon: 'sheet' },
   { to: '/strategy', label: 'Strategy Map', icon: 'map' },
   
