@@ -1788,3 +1788,22 @@ body.xl-resizing-row, body.xl-resizing-row * { cursor: row-resize !important; us
 }
 .sb-carddonut__empty b { color: #1f1a24; font-size: 26px; font-weight: 800; line-height: 1; }
 .sb-carddonut__empty span { margin-top: 3px; color: #6b6478; font-size: 11px; font-weight: 700; }
+
+/* WIG scoreboard (WigBoard.jsx): summary strip + one card per WIG, colored by status */
+.sb-wigstats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
+.sb-wigstats > * {
+  display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 16px 18px; text-align: left;
+  border: 1px solid var(--border); border-top: 4px solid #c9a227; border-radius: 10px; background: var(--surface); color: var(--text); font: inherit;
+}
+.sb-wigstats button { cursor: pointer; transition: transform 0.2s ease, box-shadow 0.2s ease; }
+.sb-wigstats button:hover, .sb-wigstats button:focus-visible { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(59, 10, 92, 0.12); outline: none; }
+.sb-wigstats b { font-family: var(--sb-serif); font-size: 32px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.sb-wigstats span { color: var(--muted); font-size: 12.5px; font-weight: 600; }
+.sb-wigstats__bar { display: block; height: 8px; margin-top: 4px; overflow: hidden; border-radius: 4px; background: var(--sb-tint); }
+.sb-wigstats__bar i { display: block; height: 100%; border-radius: 4px; background: #57177a; }
+@media (max-width: 900px) { .sb-wigstats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* WIGs as distributed columns (WigColumns.jsx) */
+.sb-wigchart { padding: 10px 14px 6px; border: 1px solid var(--border); border-top: 4px solid #c9a227; border-radius: 10px; background: var(--surface); }
+.sb-wigchart .apexcharts-bar-area { cursor: pointer; }
+.sb-wigtip__dot { display: inline-block; width: 9px; height: 9px; margin-right: 6px; border-radius: 50%; vertical-align: 0; }

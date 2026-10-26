@@ -9,6 +9,7 @@ import SheetSelect from '../../components/forms/SheetSelect';
 import WorkbookSelect from '../../components/forms/WorkbookSelect';
 import { expandSnapshots, snapshotDate, watchItems } from './scoreboardData';
 import TierBars from './TierBars';
+import WigBoard from './WigBoard';
 import WatchChart from './WatchChart';
 import { DetailDialog, StatusCards, StatusLegend, TrendChart, WatchLegend, fmtLong, snapLabel } from './ScoreboardParts';
 
@@ -130,6 +131,20 @@ export default function Dashboard() {
 
       {!loading && data && projects.length > 0 && (
         <>
+          {projects.some((d) => d.wig) && (
+            <section className="sb-section sb-section--wig">
+              <div className="sb-head"><span>WIG</span><h2>Wildly Important Goals</h2></div>
+              <div className="sb-subrow">
+                <p className="sb-sub">
+                  The projects marked in the sheet’s “Wigs” column. Are we winning? Those behind or at risk come first.
+                  Select a figure or a WIG to see its details.
+                </p>
+                <StatusLegend projects={projects.filter((d) => d.wig)} />
+              </div>
+              <WigBoard projects={projects} asOfLabel={snap?.label} onOpen={setDetail} />
+            </section>
+          )}
+
           <section className="sb-section">
             <div className="sb-head"><span>01</span><h2>Overall Status</h2></div>
             <div className="sb-subrow">

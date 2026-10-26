@@ -209,6 +209,7 @@ async function getScoreboardForUser(wb, user, { sheet, department, refresh } = {
         statuses: pr.statuses,
         row: pr.row,
         rowId: pr.rowId,
+        wig: !!pr.wig,
       });
     }
   }
@@ -221,7 +222,7 @@ async function getScoreboardForUser(wb, user, { sheet, department, refresh } = {
     persp: d.persp, obj: d.obj, kra: d.kra, qp: d.qp, kpi: d.kpi, target: d.target, tier: d.tier,
     name: d.name, lead: d.lead, support: d.support, launch: d.launch, done: d.done,
     status: d.status, execomNotes: d.execomNotes, stageEstimated: !d.stageColumn, costflag: isCostKpi(d.kpi),
-    row: d.row, rowId: d.rowId,
+    row: d.row, rowId: d.rowId, wig: d.wig,
   }));
 
   /**

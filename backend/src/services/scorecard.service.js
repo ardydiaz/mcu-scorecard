@@ -22,9 +22,11 @@ const COLUMN_PATTERNS = {
   // Optional columns for the dashboard scoreboard: the project's stage, and what it is waiting on
   stage: /^stage$/i,
   waitingOn: /^waiting (on|for)$/i,
+  // Optional: marks the project as a WIG (Wildly Important Goal, 4DX); any value but "No" / "-" / "0"
+  wig: /^wigs?$/i,
 };
 // Columns that may sit anywhere (even right of the dated updates), so they don't mark where updates start
-const FREE_COLUMNS = ['rowId', 'stage', 'waitingOn'];
+const FREE_COLUMNS = ['rowId', 'stage', 'waitingOn', 'wig'];
 const TARGET_HEADER = /^(\d{2}-\d{2}|\d{4}-\d{4})$/; // e.g. "26-27"
 const CACHE_TTL_MS = 60 * 1000;
 const HEADER_SEARCH_ROWS = 30;
@@ -35,6 +37,8 @@ function badRequest(message, status = 422) {
   return Object.assign(new Error(message), { status });
 }
 
+// A Wigs cell marks a WIG when it holds anything but an empty / "No" / "-" / "0" value
+const isWig = (v) => { const s = String(v ?? '').trim(); return !!s && !/^(no|n|none|-|–|0|false)$/i.test(s); };
 const clean = (v) => String(v ?? '').replace(/\r\n/g, '\n').trim();
 const oneLine = (v) => clean(v).replace(/\s+/g, ' ');
 
@@ -221,6 +225,7 @@ function parseScorecard(sheetName, range) {
         tier: cell(columns.tier),
         stage: oneLine(cell(columns.stage)),
         waitingOn: oneLine(cell(columns.waitingOn)),
+        wig: isWig(cell(columns.wig)),
       });
     }
   }
