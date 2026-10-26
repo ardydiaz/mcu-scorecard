@@ -159,7 +159,6 @@ export function TierRing({ tier, projects, total, onOpen }) {
   const segs = CATEGORIES.map((c) => ({ ...c, list: list.filter((d) => category(d) === c.key) })).filter((s) => s.list.length);
   const pct = shares(segs.map((s) => s.list.length), n);
   const completed = list.filter((d) => category(d) === 'completed').length;
-  const flagged = list.filter((d) => ['behind', 'atrisk'].includes(category(d)));
   const name = tier === '–' ? 'No tier' : `Class ${tier}`;
 
   let offset = 0;
@@ -174,7 +173,7 @@ export function TierRing({ tier, projects, total, onOpen }) {
   const open = (s) => onOpen({ title: `${name}: ${s.label.toLowerCase()}`, sub: `${s.list.length} of ${n} ${name} projects`, list: s.list });
 
   return (
-    <div className={`sb-tiercard${flagged.length ? ' sb-tiercard--attn' : ''}`}>
+    <div className="sb-tiercard">
       <div className={`sb-ring${hover ? ' sb-ring--hover' : ''}`}>
         <svg viewBox="0 0 200 200" role="group" aria-label={`${name} status`}>
           <circle className="sb-ring__bg" cx="100" cy="100" r={R} />

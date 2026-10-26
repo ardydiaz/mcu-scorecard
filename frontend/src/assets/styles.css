@@ -1771,7 +1771,6 @@ body.xl-resizing-row, body.xl-resizing-row * { cursor: row-resize !important; us
 .sb-charttitle { color: var(--muted); font-family: var(--sb-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.13em; text-transform: uppercase; }
 .sb-tiers { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
 .sb-tiercard { display: flex; flex-direction: column; align-items: center; padding: 20px 18px 18px; text-align: center; border: 1px solid var(--border); border-top: 4px solid #57177a; border-radius: 10px; background: var(--surface); }
-.sb-tiercard--attn { border-top-color: #c9a227; }
 .sb-ring { position: relative; width: 190px; max-width: 100%; aspect-ratio: 1; }
 .sb-ring svg { display: block; width: 100%; height: 100%; }
 .sb-ring__bg { fill: none; stroke: var(--sb-tint); stroke-width: 26; }
