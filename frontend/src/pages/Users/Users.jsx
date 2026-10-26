@@ -85,7 +85,7 @@ export default function Users() {
     const name = u.displayName || u.email;
     if (!u.viewAll && !(await confirmDialog({
       title: `Let ${name} view all departments?`,
-      text: "They will see every department's rows on the Strategy Scoreboard and Strategy Scorecard, and can filter by any department. "
+      text: "They will see every department's rows on the Strategy Scoreboard and Live Agenda, and can filter by any department. "
         + 'They can still edit only the rows their own department leads.',
       confirmText: 'Allow',
     }))) return;

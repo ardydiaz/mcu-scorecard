@@ -8,7 +8,7 @@ import { logActivity } from '../../api/auditApi';
 const PAGE_NAMES = {
   '/dashboard': 'Strategy Scoreboard',
   '/strategy': 'Strategy Map',
-  '/strategy-map': 'Strategy Scorecard (Excel grid)',
+  '/strategy-map': 'Live Agenda (Excel grid)',
   '/profile': 'Profile',
   '/home/about': 'Home – About MCU',
   '/home/history': 'Home – History',
