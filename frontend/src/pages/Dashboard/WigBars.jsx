@@ -6,9 +6,9 @@ const TRACK = '#ece5f2'; // the part still to do, up to 100%
 const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
 /**
- * WIGs as stacked horizontal bars (ApexCharts): one bar per WIG, made of its completion % (in its
- * status color, the dashboard's, as in the legend) and the rest up to 100% (light). The % is shown
- * at the end of each bar. `wigs` come in the board's order (behind / at risk first). Hover for
+ * WIGs as a 100% stacked bar chart (ApexCharts): one bar per WIG, made of its completion % (in its
+ * status color, the dashboard's, as in the legend) and the rest up to 100% (light). Each part shows
+ * its %, and the completion % is also shown at the end of each bar. `wigs` come in the board's order (behind / at risk first). Hover for
  * details; select a bar to open the WIG's details and latest note.
  */
 export default function WigBars({ wigs, asOfLabel, onOpen }) {
@@ -38,7 +38,9 @@ export default function WigBars({ wigs, asOfLabel, onOpen }) {
   const options = styles && {
     chart: {
       type: 'bar',
+      // ApexCharts "Stacked Bar 100%": each WIG's bar is its completed + remaining share of 100%
       stacked: true,
+      stackType: '100%',
       toolbar: { show: false },
       fontFamily: 'Roboto, "Segoe UI", system-ui, sans-serif',
       animations: { enabled: true, speed: 350 },
@@ -67,12 +69,18 @@ export default function WigBars({ wigs, asOfLabel, onOpen }) {
     },
     // 2px gap between the done and remaining parts, in the surface color
     stroke: { width: 2, colors: ['#ffffff'] },
-    dataLabels: { enabled: false },
+    // Each part's % inside it: white on the completed (status color), muted on the remaining part
+    dataLabels: {
+      enabled: true,
+      formatter: (_v, { seriesIndex, dataPointIndex }) => {
+        const v = seriesIndex === 0 ? pct[dataPointIndex] : 100 - pct[dataPointIndex];
+        return v >= 6 ? `${v}%` : '';
+      },
+      style: { fontSize: '11.5px', fontWeight: 700, colors: ['#ffffff', '#6b6478'] },
+      dropShadow: { enabled: false },
+    },
     legend: { show: false }, // the section's legend names the status colors
     xaxis: {
-      // Fixed 0–100% (without a minimum ApexCharts may start the axis at -100% and leave half the chart empty)
-      min: 0,
-      max: 100,
       tickAmount: 4,
       labels: { formatter: (v) => `${Math.round(v)}%`, style: { colors: '#6b6478', fontSize: '11.5px' } },
       axisBorder: { show: false },
