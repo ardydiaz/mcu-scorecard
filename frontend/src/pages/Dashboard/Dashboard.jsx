@@ -7,11 +7,10 @@ import Loader from '../../components/common/Loader';
 import ErrorMessage from '../../components/common/ErrorMessage';
 import SheetSelect from '../../components/forms/SheetSelect';
 import WorkbookSelect from '../../components/forms/WorkbookSelect';
-import { expandSnapshots, snapshotDate, watchItems } from './scoreboardData';
-import TierBars from './TierBars';
+import { CATEGORIES, category, expandSnapshots, snapshotDate, tiersOf, watchItems } from './scoreboardData';
 import WigBoard from './WigBoard';
 import WatchChart from './WatchChart';
-import { DetailDialog, StatusCards, StatusLegend, TrendChart, WatchLegend, fmtLong, snapLabel } from './ScoreboardParts';
+import { DetailDialog, StatusCards, StatusLegend, TierRing, TrendChart, WatchLegend, fmtLong, snapLabel } from './ScoreboardParts';
 
 /**
  * Dashboard: the scoreboard of the selected scorecard file and sheet (the default file first),
@@ -46,6 +45,7 @@ export default function Dashboard() {
   const latest = snapshots.at(-1);
   const snap = snapshots.find((s) => s.label === asOfParam) || latest;
   const projects = snap?.projects || [];
+  const tiers = tiersOf(projects);
   const isOld = Boolean(snap && latest && snap !== latest);
   const asOf = snapshotDate(snap);
   const watch = useMemo(() => (snap ? watchItems(snap.projects, snapshotDate(snap)) : []), [snap]);
@@ -137,7 +137,7 @@ export default function Dashboard() {
               <div className="sb-subrow">
                 <p className="sb-sub">
                   The projects marked in the sheet’s “Wigs” column. Are we winning? Those behind or at risk come first.
-                  Select a figure or a WIG to see its details.
+                  Select a WIG to see its details.
                 </p>
                 <StatusLegend projects={projects.filter((d) => d.wig)} />
               </div>
@@ -156,14 +156,21 @@ export default function Dashboard() {
 
           <section className="sb-section">
             <div className="sb-head"><span>02</span><h2>Status by Tier</h2></div>
-            <div className="sb-subrow">
-              <p className="sb-sub">
-                Each bar is one tier, split by reported status (100% = all projects in the tier). Hover a segment for its count;
-                select a segment or a tier name to see its projects.
-              </p>
-              <StatusLegend projects={projects} />
+            <p className="sb-sub">
+              Projects in each tier, colored by reported status. Each ring is one tier. The centre shows that tier’s completed projects as a share
+              of the tier, and hovering a segment shows its share of the tier. Select a ring segment, a status count or a tier name to see its projects.
+            </p>
+            <div className="sb-charttop">
+              <div className="sb-charttitle">Projects per tier</div>
+              <div className="sb-chartlegend">
+                {CATEGORIES.filter((c) => projects.some((d) => category(d) === c.key)).map((c) => (
+                  <span key={c.key}><i style={{ background: c.color }} />{c.label}</span>
+                ))}
+              </div>
             </div>
-            <TierBars projects={projects} onOpen={setDetail} />
+            <div className="sb-tiers">
+              {tiers.map((t) => <TierRing key={t} tier={t} projects={projects} total={projects.length} onOpen={setDetail} />)}
+            </div>
           </section>
 
           <section className="sb-section">

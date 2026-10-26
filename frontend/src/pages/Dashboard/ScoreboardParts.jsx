@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CATEGORIES, STAGE_LABEL, TREND_GROUPS, category, fmtWhen, shares, shortName, stageColor, tierOrder, trendSeries,
 } from './scoreboardData';
-import { StatusCardDonut, TotalCardDonut } from './CardDonut';
 
 export const fmtLong = (d) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 export const snapLabel = (s) => (s.date ? fmtLong(new Date(`${s.date}T00:00:00`)) : s.label);
@@ -128,35 +127,90 @@ export function StatusCards({ projects, onOpen }) {
   const lists = Object.fromEntries(CATEGORIES.map((c) => [c.key, projects.filter((d) => category(d) === c.key)]));
   const shown = CATEGORIES.filter((c) => c.key !== 'unreported' || lists.unreported.length);
   const pct = shares(shown.map((c) => lists[c.key].length), total);
-  // Each card holds a donut (ApexCharts, CardDonut.jsx): the Total card shows all statuses; a status
-  // card shows its share and drills into perspectives. The card's title opens its full project list.
   return (
-    <div className="sb-cards sb-cards--donut">
-      <div className="sb-card sb-card--total">
-        <TotalCardDonut cats={shown} lists={lists} total={total} onOpen={onOpen} />
-        <button type="button" className="sb-card__open" onClick={() => onOpen({ title: 'All projects', sub: `${total} projects`, list: projects })}>
-          <span className="sb-card__l">Total projects</span>
-          <span className="sb-card__sub"><b>{total}</b> projects · see all</span>
-        </button>
-      </div>
+    <div className="sb-cards">
+      <button type="button" className="sb-card sb-card--total" onClick={() => onOpen({ title: 'All projects', sub: `${total} projects`, list: projects })}>
+        <span className="sb-card__n">{total}</span>
+        <span className="sb-card__l">Total projects</span>
+      </button>
       {shown.map((c, i) => {
         const n = lists[c.key].length;
         return (
-          <div key={c.key} className="sb-card" style={{ '--c': c.color }}>
-            <StatusCardDonut cat={c} list={lists[c.key]} total={total} pct={pct[i]} onOpen={onOpen} />
-            <button type="button" className="sb-card__open"
-              onClick={() => onOpen({ title: c.label, sub: `${n} of ${total} projects`, list: lists[c.key], empty: c.empty })}>
-              <span className="sb-card__l">{c.label}</span>
-              <span className="sb-card__sub"><b>{n}</b> of {total} projects · see all</span>
-            </button>
-          </div>
+          <button key={c.key} type="button" className="sb-card" style={{ '--c': c.color }}
+            onClick={() => onOpen({ title: c.label, sub: `${n} of ${total} projects`, list: lists[c.key], empty: c.empty })}>
+            <span className="sb-card__n">{pct[i]}%</span>
+            <span className="sb-card__l">{c.label}</span>
+            <span className="sb-card__sub"><b>{n}</b> of {total} projects</span>
+          </button>
         );
       })}
     </div>
   );
 }
 
-// ---------- 02 Status by tier: see TierBars.jsx ----------
+// ---------- 02 Status by tier ----------
+const R = 76;
+const CIRC = 2 * Math.PI * R;
+
+export function TierRing({ tier, projects, total, onOpen }) {
+  const [hover, setHover] = useState(null);
+  const list = projects.filter((d) => d.tier === tier);
+  const n = list.length;
+  const segs = CATEGORIES.map((c) => ({ ...c, list: list.filter((d) => category(d) === c.key) })).filter((s) => s.list.length);
+  const pct = shares(segs.map((s) => s.list.length), n);
+  const completed = list.filter((d) => category(d) === 'completed').length;
+  const flagged = list.filter((d) => ['behind', 'atrisk'].includes(category(d)));
+  const name = tier === '–' ? 'No tier' : `Class ${tier}`;
+
+  let offset = 0;
+  const arcs = segs.map((s, i) => {
+    const len = (s.list.length / n) * CIRC;
+    const draw = segs.length > 1 ? Math.max(len - 2.5, 1) : len;
+    const arc = { ...s, pct: pct[i], draw, offset: -offset };
+    offset += len;
+    return arc;
+  });
+  const active = arcs.find((a) => a.key === hover);
+  const open = (s) => onOpen({ title: `${name}: ${s.label.toLowerCase()}`, sub: `${s.list.length} of ${n} ${name} projects`, list: s.list });
+
+  return (
+    <div className={`sb-tiercard${flagged.length ? ' sb-tiercard--attn' : ''}`}>
+      <div className={`sb-ring${hover ? ' sb-ring--hover' : ''}`}>
+        <svg viewBox="0 0 200 200" role="group" aria-label={`${name} status`}>
+          <circle className="sb-ring__bg" cx="100" cy="100" r={R} />
+          {arcs.map((a) => (
+            <circle key={a.key} className={`sb-ring__seg${hover === a.key ? ' is-active' : ''}`} cx="100" cy="100" r={R}
+              stroke={a.color} strokeDasharray={`${a.draw} ${CIRC - a.draw}`} strokeDashoffset={a.offset} transform="rotate(-90 100 100)"
+              tabIndex={0} role="button" aria-label={`${name}, ${a.label.toLowerCase()}, ${a.list.length} of ${n} projects`}
+              onMouseEnter={() => setHover(a.key)} onMouseLeave={() => setHover(null)}
+              onFocus={() => setHover(a.key)} onBlur={() => setHover(null)}
+              onClick={() => open(a)} onKeyDown={activate(() => open(a))}>
+              <title>{`${a.label}: ${a.list.length}`}</title>
+            </circle>
+          ))}
+        </svg>
+        <div className="sb-ring__center">
+          {active ? (
+            <><b style={{ color: active.color }}>{active.pct}%</b><span>{active.label}</span><em>{active.list.length} of {n}</em></>
+          ) : (
+            <><b>{n ? Math.round((completed / n) * 100) : 0}%</b><span>completed</span><em>{completed} of {n}</em></>
+          )}
+        </div>
+      </div>
+      <button type="button" className="sb-tiername" onClick={() => onOpen({ title: `${name} projects`, sub: `${n} of ${total} projects`, list })}>
+        <span>{name}</span><small>{n} project{n === 1 ? '' : 's'}</small>
+      </button>
+      <div className="sb-chips">
+        {arcs.map((a) => (
+          <button key={a.key} type="button" className="sb-chip" onClick={() => open(a)}
+            onMouseEnter={() => setHover(a.key)} onMouseLeave={() => setHover(null)}>
+            <i style={{ background: a.color }} />{a.label} <b>{a.list.length}</b>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // ---------- 03 Worth raising at Execom ----------
 // Horizontal bars, one per issue, in order of urgency (not sorted by size). Each bar sits on a light
