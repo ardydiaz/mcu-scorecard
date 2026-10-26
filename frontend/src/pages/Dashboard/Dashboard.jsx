@@ -146,7 +146,7 @@ export default function Dashboard() {
           )}
 
           <section className="sb-section">
-            <div className="sb-head"><span>01</span><h2>Overall Status</h2></div>
+            <div className="sb-head"><span>01</span><h2>Strategic Scorecard - Over all Status</h2></div>
             <div className="sb-subrow">
               <p className="sb-sub">Projects counted by the traffic light reported in the sheet. Select a card to see the projects behind it.</p>
               <StatusLegend projects={projects} />

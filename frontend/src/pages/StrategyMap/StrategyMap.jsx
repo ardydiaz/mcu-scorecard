@@ -323,7 +323,7 @@ export default function StrategyMap() {
 
   return (
     <div className="page">
-      <h1 className="page__title">Strategy Scoreboard</h1>
+      <h1 className="page__title">Strategy Scorecard</h1>
 
       <div className="toolbar">
         <div className="segmented" role="group" aria-label="View">
