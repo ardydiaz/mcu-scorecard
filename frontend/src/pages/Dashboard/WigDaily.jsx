@@ -12,17 +12,15 @@ const fmtDay = (day, long = false) => new Date(`${day}T00:00:00`).toLocaleDateSt
   : { day: 'numeric', month: 'short' });
 
 /**
- * WIG status day by day: four status tiles (Completed / On track / Behind / At risk) for the chosen
- * day, a day picker, and a stacked column per day (ApexCharts) for the last 30 days. Days come from
- * the snapshots the server saves daily (wigHistory.service); "Today" is always the live status of
- * the sheet. Colors are the dashboard's status colors. Selecting a tile or a column segment opens
- * those WIGs (with their current details).
+ * WIG status day by day: a stacked column per day (ApexCharts, Completed / On track / Behind /
+ * At risk) for the last CAL_DAYS days. Days come from the snapshots the server saves daily
+ * (wigHistory.service); "Today" is always the live status of the sheet. Colors are the dashboard's
+ * status colors. Selecting a column segment opens those WIGs (with their current details).
  */
 export default function WigDaily({ wigs, workbook, sheet, department, onOpen }) {
   const box = useRef(null);
   const [styles, setStyles] = useState(null);
   const [history, setHistory] = useState(null);
-  const [day, setDay] = useState('live');
   useLayoutEffect(() => { setStyles(getComputedStyle(box.current)); }, []);
 
   useEffect(() => {
@@ -43,7 +41,6 @@ export default function WigDaily({ wigs, workbook, sheet, department, onOpen }) 
     ...(history?.days || []).filter((x) => x.day !== today),
     ...(today ? [{ day: today, items: liveItems, live: true }] : []),
   ];
-  const chosen = day === 'live' ? { day: today, items: liveItems, live: true } : days.find((x) => x.day === day) || { day: today, items: liveItems, live: true };
   // The chart's calendar: every one of the last CAL_DAYS days up to today, so each date has its own
   // column (a day without a saved snapshot shows as an empty slot)
   const calendar = [];
@@ -80,7 +77,6 @@ export default function WigDaily({ wigs, workbook, sheet, department, onOpen }) 
         dataPointSelection: (_e, _ctx, { seriesIndex, dataPointIndex }) => {
           const entry = calendar[dataPointIndex];
           if (!entry || entry.missing) return;
-          setDay(entry.live ? 'live' : entry.day);
           open(entry, cats[seriesIndex].key);
         },
         dataPointMouseEnter: (e) => { if (e?.target) e.target.style.cursor = 'pointer'; },
@@ -151,31 +147,11 @@ export default function WigDaily({ wigs, workbook, sheet, department, onOpen }) 
   return (
     <div className="sb-wigdaily" ref={box}>
       <div className="sb-wigdaily__head">
-        <label className="sb-wigdaily__pick">
-          <span>Status on</span>
-          <select value={day} onChange={(e) => setDay(e.target.value)}>
-            <option value="live">Today{today ? ` (${fmtDay(today)})` : ''} · live</option>
-            {[...days].reverse().filter((x) => !x.live).map((x) => <option key={x.day} value={x.day}>{fmtDay(x.day, true)}</option>)}
-          </select>
-        </label>
         <span className="sb-wigdaily__note">
           {history === null ? 'Loading the daily history…'
             : days.filter((x) => !x.live).length === 0 ? 'Daily history starts today: the status is saved every day from now on.'
               : `Daily history: ${days.filter((x) => !x.live).length} saved day${days.filter((x) => !x.live).length === 1 ? '' : 's'}`}
         </span>
-      </div>
-
-      <div className="sb-wigdaily__tiles">
-        {cats.map((c) => {
-          const n = count(chosen.items, c.key);
-          return (
-            <button key={c.key} type="button" className="sb-wigtile" style={{ '--c': c.color }} onClick={() => open(chosen, c.key)}>
-              <b>{n}</b>
-              <span>{c.label}</span>
-              <small>{chosen.items.length ? Math.round((n / chosen.items.length) * 100) : 0}% of {chosen.items.length} WIGs</small>
-            </button>
-          );
-        })}
       </div>
 
       {options && (
