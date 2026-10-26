@@ -22,6 +22,18 @@ process.on('uncaughtException', (err) => {
   process.exit(1);
 });
 
+// Saves today's WIG status of the default file once an hour (and a minute after start-up), so every
+// day has a snapshot even when nobody opens the dashboard (see wigHistory.service)
+function scheduleWigSnapshots() {
+  const { resolveWorkbook } = require('./services/workbook.service');
+  const { recordSoon } = require('./services/wigHistory.service');
+  const run = () => resolveWorkbook(undefined, { role: 'admin' })
+    .then((wb) => recordSoon(wb))
+    .catch((err) => logger.warn(`WIG snapshot skipped: ${err.message}`));
+  setTimeout(run, 60 * 1000);
+  setInterval(run, 60 * 60 * 1000);
+}
+
 async function start() {
   try {
     await connectDatabase();
@@ -46,6 +58,7 @@ async function start() {
     app.listen(env.port, env.host, () => {
       logger.info(`MCU Scorecard API running on http://${env.host}:${env.port}`);
       warmUpFormats(defaultWorkbook);
+      scheduleWigSnapshots();
     });
   } catch (err) {
     logger.error(err);

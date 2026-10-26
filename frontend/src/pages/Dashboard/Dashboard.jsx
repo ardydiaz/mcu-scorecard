@@ -141,7 +141,7 @@ export default function Dashboard() {
                 </p>
                 <StatusLegend projects={projects.filter((d) => d.wig)} />
               </div>
-              <WigBoard projects={projects} asOfLabel={snap?.label} onOpen={setDetail} />
+              <WigBoard projects={projects} asOfLabel={snap?.label} onOpen={setDetail} workbook={workbook} sheet={data.sheet} department={department} />
             </section>
           )}
 

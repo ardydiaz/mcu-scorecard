@@ -1789,3 +1789,24 @@ body.xl-resizing-row, body.xl-resizing-row * { cursor: row-resize !important; us
 .sb-tiername:hover span { text-decoration: underline; text-underline-offset: 3px; }
 .sb-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 14px; }
 @media (max-width: 820px) { .sb-tiers { grid-template-columns: minmax(0, 1fr); } }
+
+/* WIG status day by day (WigDaily.jsx): day picker, four status tiles, stacked column per day */
+.sb-wigdaily { margin-bottom: 14px; }
+.sb-wigdaily__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-bottom: 10px; }
+.sb-wigdaily__pick { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.sb-wigdaily__pick select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 13.5px; font-weight: 600; letter-spacing: 0; text-transform: none; cursor: pointer; }
+.sb-wigdaily__note { color: var(--muted); font-size: 12px; }
+.sb-wigdaily__tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
+.sb-wigtile {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 14px 18px; text-align: left;
+  border: 1px solid var(--border); border-top: 4px solid var(--c); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.sb-wigtile:hover, .sb-wigtile:focus-visible { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(59, 10, 92, 0.12); outline: none; }
+.sb-wigtile b { color: var(--c); font-family: var(--sb-serif); font-size: 32px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.sb-wigtile span { font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.sb-wigtile small { color: var(--muted); font-size: 12px; }
+.sb-wigdaily__chart { padding: 10px 14px 4px; border: 1px solid var(--border); border-top: 4px solid #c9a227; border-radius: 10px; background: var(--surface); }
+.sb-wigdaily__chart .apexcharts-bar-area { cursor: pointer; }
+.sb-wigdaily__charttitle { margin: 2px 4px 0; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+@media (max-width: 900px) { .sb-wigdaily__tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

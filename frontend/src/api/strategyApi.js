@@ -112,3 +112,11 @@ export async function getStrategyMap({ workbook, sheet, department, refresh } = 
   });
   return data;
 }
+
+// WIG status day by day (saved daily snapshots): { sheet, today, days: [{ day, items: [{ rowKey, name, lead, tier, status, pct }] }] }
+export async function getWigHistory({ workbook, sheet, department, days = 30 } = {}) {
+  const { data } = await api.get('/strategy/wigs/history', {
+    params: { workbook: workbook || undefined, sheet: sheet || undefined, department: department || undefined, days },
+  });
+  return data;
+}

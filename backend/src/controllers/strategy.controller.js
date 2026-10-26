@@ -7,6 +7,7 @@ const workbookService = require('../services/workbook.service');
 const { audit } = require('../services/audit.service');
 const hiddenRowService = require('../services/hiddenRow.service');
 const scoreboardService = require('../services/scoreboard.service');
+const wigHistory = require('../services/wigHistory.service');
 const columnService = require('../services/column.service');
 
 // The scorecard file this request works on (?workbook= or body.workbook; default file when absent)
@@ -180,6 +181,8 @@ async function getScoreboard(req, res) {
   const { sheet, department, refresh } = req.query;
   const data = await scoreboardService.getScoreboardForUser(wb, user, { sheet, department, refresh: refresh === '1' });
   await auditView(req, 'Dashboard scoreboard', wb, data, { projects: data.projects.length });
+  // Keep today's WIG snapshot current (at most every 30 minutes; never delays this response)
+  if (data.projects.some((p) => p.wig)) wigHistory.recordSoon(wb, data.sheet);
   res.json({ ...data, workbookId: wb.id, workbookName: wb.name });
 }
 
@@ -192,6 +195,16 @@ async function getMap(req, res) {
   res.json({ ...data, workbookId: wb.id });
 }
 
+// WIG status day by day (the last `days` days) for the WIGs this user may see
+async function getWigHistory(req, res) {
+  const wb = await workbookFor(req);
+  const user = await userService.getUserForAccess(req.user.id);
+  const { sheet, department } = req.query;
+  const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 90);
+  res.json(await wigHistory.historyForUser(wb, user, { sheet, department, days }));
+}
+
 module.exports = {
+  getWigHistory,
   listWorkbooks, listSheets, getWorkbook, getScoreboard, getGrid, setHiddenRows, updateGridCell, formatGridCell, mergeGridCells, changeGridColumns, setGridColumnWidths, setGridRowHeights, pasteGridCells, getMap,
 };

@@ -24,6 +24,14 @@ router.get('/scoreboard',
   validate,
   strategy.getScoreboard
 );
+// WIG status day by day (saved daily snapshots)
+router.get('/wigs/history',
+  sheetQuery,
+  query('department').optional().isString().trim().isLength({ min: 1, max: 20 }),
+  query('days').optional().isInt({ min: 1, max: 90 }),
+  validate,
+  strategy.getWigHistory
+);
 router.get('/grid',
   query('sheet').isString().trim().isLength({ min: 1, max: 100 }),
   query('department').optional().isString().trim().isLength({ min: 1, max: 20 }),
