@@ -12,8 +12,8 @@ const fmtDay = (day, long = false) => new Date(`${day}T00:00:00`).toLocaleDateSt
   : { day: 'numeric', month: 'short' });
 
 /**
- * WIG status day by day: a stacked column per day (ApexCharts, Completed / On track / Behind /
- * At risk) for the last CAL_DAYS days. Days come from the snapshots the server saves daily
+ * WIG status day by day: a horizontal stacked bar per day (ApexCharts, Completed / On track /
+ * Behind / At risk) for the last CAL_DAYS days. Days come from the snapshots the server saves daily
  * (wigHistory.service); "Today" is always the live status of the sheet. Colors are the dashboard's
  * status colors. Selecting a column segment opens those WIGs (with their current details).
  */
@@ -85,16 +85,17 @@ export default function WigDaily({ wigs, workbook, sheet, department, onOpen }) 
     colors: cats.map((c) => resolve(c.color)),
     plotOptions: {
       bar: {
-        columnWidth: '55%',
-        // Rounded columns (both ends), as in ApexCharts' "Stacked Column" example
-        borderRadius: 8,
-        borderRadiusApplication: 'around',
+        // Horizontal bars, one per day (ApexCharts "Stacked Bar")
+        horizontal: true,
+        barHeight: '62%',
+        borderRadius: 6,
+        borderRadiusApplication: 'end',
         borderRadiusWhenStacked: 'last',
-        // The day's total number of WIGs on top of its column (nothing on days without a snapshot)
+        // The day's total number of WIGs at the end of its bar (nothing on days without a snapshot)
         dataLabels: {
           total: {
             enabled: true,
-            offsetY: -4,
+            offsetX: 6,
             formatter: (val, opts) => (calendar[opts.dataPointIndex]?.missing || !val ? '' : String(val)),
             style: { fontSize: '13px', fontWeight: 800, color: '#1f1a24' },
           },
@@ -102,32 +103,35 @@ export default function WigDaily({ wigs, workbook, sheet, department, onOpen }) 
       },
     },
     stroke: { width: 1, colors: ['#ffffff'] },
-    // The number of WIGs in each status, inside its piece of the day's column
+    // The number of WIGs in each status, inside its piece of the day's bar
     dataLabels: { enabled: true, style: { fontSize: '11px', fontWeight: 700 }, formatter: (v) => (v ? String(v) : '') },
-    // Legend on the right of the chart, as in the example (same status colors as the section legend)
+    // Legend above the chart (same status colors as the section legend)
     legend: {
       show: true,
       showForSingleSeries: true,
-      position: 'right',
-      offsetY: 30,
+      position: 'top',
+      horizontalAlign: 'right',
       fontSize: '12.5px',
       fontWeight: 600,
       markers: { size: 6, shape: 'square' },
-      itemMargin: { vertical: 4 },
+      itemMargin: { horizontal: 8 },
       onItemClick: { toggleDataSeries: true },
     },
+    // In a horizontal bar chart the x axis is the WIG count and the y axis lists the days
     xaxis: {
-      // Two lines under each column: weekday and date ("Mon" / "26 Oct"); today is marked
-      categories: calendar.map((x) => [x.live ? 'Today' : weekday(x.day), fmtDay(x.day)]),
-      labels: {
-        rotate: 0,
-        hideOverlappingLabels: false,
-        style: { colors: calendar.map((x) => (x.live ? '#3b0a5c' : x.missing ? '#b3abbd' : '#6b6478')), fontSize: '11px', fontWeight: 600 },
-      },
+      categories: calendar.map((x) => `${x.live ? 'Today' : weekday(x.day)} ${fmtDay(x.day)}`),
+      min: 0,
+      tickAmount: Math.max(1, wigs.length),
+      labels: { formatter: (v) => String(Math.round(v)), style: { colors: '#6b6478', fontSize: '11px' } },
+      title: { text: 'WIGs', style: { color: '#6b6478', fontSize: '11.5px', fontWeight: 600 } },
       axisTicks: { show: false },
     },
-    yaxis: { min: 0, forceNiceScale: true, labels: { formatter: (v) => String(Math.round(v)), style: { colors: '#6b6478', fontSize: '11px' } }, title: { text: 'WIGs', style: { color: '#6b6478', fontSize: '11.5px', fontWeight: 600 } } },
-    grid: { borderColor: '#ece7f1', strokeDashArray: 3 },
+    yaxis: {
+      labels: {
+        style: { colors: calendar.map((x) => (x.live ? '#3b0a5c' : x.missing ? '#b3abbd' : '#6b6478')), fontSize: '11.5px', fontWeight: 600 },
+      },
+    },
+    grid: { borderColor: '#ece7f1', strokeDashArray: 3, xaxis: { lines: { show: true } }, yaxis: { lines: { show: false } } },
     tooltip: {
       shared: true,
       intersect: false,
@@ -159,7 +163,7 @@ export default function WigDaily({ wigs, workbook, sheet, department, onOpen }) 
           <div className="sb-wigdaily__charttitle">
             WIG status per day · {fmtDay(calendar[0].day)} to {fmtDay(today)}
           </div>
-          <Chart type="bar" height={320}
+          <Chart type="bar" height={90 + calendar.length * 30}
             series={cats.map((c) => ({ name: c.label, data: calendar.map((x) => count(x.items, c.key)) }))}
             options={options} />
         </div>
