@@ -185,7 +185,7 @@ export default function Dashboard() {
           </section>
 
           <section className="sb-section">
-            <div className="sb-head"><span>04</span><h2>Trend Over Time</h2></div>
+            <div className="sb-head"><span>04</span><h2>Project Trend</h2></div>
             <p className="sb-sub">
               Reported completion of projects from one weekly update to the next. Select a line to see its projects. Hover or tap a date to compare,
               and select it to view that week’s data.

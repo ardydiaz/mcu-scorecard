@@ -120,6 +120,18 @@ export function watchItems(projects, asOf) {
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
   const names = (list, extra = () => '') => `${list.map((d) => `${shortName(d.name)}${extra(d)}`).join(', ')}.`;
 
+  // Class S (the top tier) is always raised at Execom until it is completed, whatever its status
+  const classS = projects.filter((d) => d.tier === 'S' && category(d) !== 'completed');
+  if (classS.length) {
+    items.push({
+      tone: 'stop',
+      label: 'Class S',
+      title: `${plural(classS.length, 'Class S project is', 'Class S projects are')} open`,
+      text: names(classS, (d) => (d.status ? ` (${d.status.toLowerCase()})` : '')),
+      list: classS,
+    });
+  }
+
   const flagged = projects.filter((d) => ['behind', 'atrisk'].includes(category(d)));
   if (flagged.length) {
     items.push({

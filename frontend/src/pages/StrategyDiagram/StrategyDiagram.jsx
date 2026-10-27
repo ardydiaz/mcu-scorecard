@@ -18,8 +18,8 @@ const NODES = [
 
 const LANES = [
   { label: 'Profitability', y: 46, h: 100 },
-  { label: 'Student', y: 186, h: 104 },
-  { label: 'Quality', y: 330, h: 104 },
+  // Quality also holds the Delightful Student Journey (same pink group), its label centered on both rows
+  { label: 'Quality', y: 176, h: 258 },
   { label: 'Innovation', y: 488, h: 104 },
 ];
 

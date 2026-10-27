@@ -1178,8 +1178,8 @@ a.btn { text-decoration: none; }
   --sb-serif: 'Roboto', 'Segoe UI', system-ui, sans-serif;
   --sb-mono: 'Roboto', 'Segoe UI', system-ui, sans-serif;
   /* status: reserved for project state, never reused for trend lines */
-  --sb-completed: #2f7d5a; --sb-ontrack: #2d6cb5; --sb-behind: #c9a227; --sb-atrisk: #a93b3b; --sb-unreported: #ffc107;
-  --sb-st-complete: #2f7d5a; --sb-st-rollout: #57177a; --sb-st-testing: #8b5cb0; --sb-st-build: #3b0a5c; --sb-st-review: #8c8298;
+  --sb-completed: #2d6cb5; --sb-ontrack: #2f7d5a; --sb-behind: #ffbc00; --sb-atrisk: #a93b3b; --sb-unreported: #ffc107;
+  --sb-st-complete: #2d6cb5; --sb-st-rollout: #57177a; --sb-st-testing: #8b5cb0; --sb-st-build: #3b0a5c; --sb-st-review: #8c8298;
   --sb-st-sourcing: #9a7b14; --sb-st-waiting: #c0562f; --sb-st-china: #2b7a8c; --sb-st-progress: #5b6577;
   /* trend lines: validated categorical order for the light surface */
   --sb-series-1: #2a78d6; --sb-series-2: #eb6834; --sb-series-3: #1baf7a; --sb-series-4: #eda100;
@@ -1762,8 +1762,11 @@ body.xl-resizing-row, body.xl-resizing-row * { cursor: row-resize !important; us
 /* WIG scoreboard (WigBoard.jsx): summary strip + one card per WIG, colored by status */
 
 /* WIGs as stacked bars, one per WIG (WigBars.jsx) */
-.sb-wigchart { padding: 10px 14px 6px; border: 1px solid var(--border); border-top: 4px solid #c9a227; border-radius: 10px; background: var(--surface); }
+.sb-wigchart { padding: 10px 14px 6px; border: 1px solid var(--border); border-top: 4px solid #57177a; border-radius: 10px; background: var(--surface); }
 .sb-wigchart .apexcharts-bar-area { cursor: pointer; }
+/* WIG radial chart: the names end at the rings' center, in the open top-left quarter */
+.sb-wigradial .apexcharts-radialbar-area { cursor: pointer; }
+.sb-wigradial__chart { max-width: 650px; margin: 10px auto; }
 .sb-wigtip__dot { display: inline-block; width: 9px; height: 9px; margin-right: 6px; border-radius: 50%; vertical-align: 0; }
 
 /* 02 status by tier: one ring per tier (TierRing) */
