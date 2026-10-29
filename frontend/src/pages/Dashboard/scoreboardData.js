@@ -120,14 +120,14 @@ export function watchItems(projects, asOf) {
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
   const names = (list, extra = () => '') => `${list.map((d) => `${shortName(d.name)}${extra(d)}`).join(', ')}.`;
 
-  // Class S (the top tier) is always raised at Execom until it is completed, whatever its status
-  const classS = projects.filter((d) => d.tier === 'S' && category(d) !== 'completed');
+  // Class S (the top tier) is raised at Execom when its traffic light is Behind
+  const classS = projects.filter((d) => d.tier === 'S' && category(d) === 'behind');
   if (classS.length) {
     items.push({
       tone: 'stop',
-      label: 'Class S',
-      title: `${plural(classS.length, 'Class S project is', 'Class S projects are')} open`,
-      text: names(classS, (d) => (d.status ? ` (${d.status.toLowerCase()})` : '')),
+      label: 'Class S behind',
+      title: `${plural(classS.length, 'Class S project is', 'Class S projects are')} behind`,
+      text: names(classS),
       list: classS,
     });
   }
