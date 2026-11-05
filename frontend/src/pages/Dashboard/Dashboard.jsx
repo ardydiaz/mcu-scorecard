@@ -133,7 +133,7 @@ export default function Dashboard() {
         <>
           {projects.some((d) => d.wig) && (
             <section className="sb-section sb-section--wig">
-              <div className="sb-head"><span>WIG</span><h2>Wildly Important Goals</h2></div>
+              <div className="sb-head"><span>WIG</span><h2>Wildly Important Goals (WIGS)</h2></div>
               <div className="sb-subrow">
                 <p className="sb-sub">
                   The projects marked in the sheet’s “Wigs” column. Are we winning? Those behind or at risk come first.
@@ -146,7 +146,7 @@ export default function Dashboard() {
           )}
 
           <section className="sb-section">
-            <div className="sb-head"><span>01</span><h2>Strategic Scorecard - Over all Status</h2></div>
+            <div className="sb-head"><span>01</span><h2>Strategic Scorecard Overall Status</h2></div>
             <div className="sb-subrow">
               <p className="sb-sub">Projects counted by the traffic light reported in the sheet. Select a card to see the projects behind it.</p>
               <StatusLegend projects={projects} />
