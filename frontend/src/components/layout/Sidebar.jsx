@@ -18,7 +18,7 @@ const Icon = ({ name }) => <svg className="sidebar__icon" viewBox="0 0 24 24" ar
 
 const links = [
   { to: '/dashboard', label: 'Strategy Scoreboard', icon: 'dashboard' },
-  { to: '/strategy-map', label: 'Live Agenda', icon: 'sheet' },
+  { to: '/strategy-map', label: 'Scoredcard - Live Agenda', icon: 'sheet' },
   { to: '/strategy', label: 'Strategy Map', icon: 'map' },
   
 ];
