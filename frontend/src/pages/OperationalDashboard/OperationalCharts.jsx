@@ -1,4 +1,21 @@
+import { useEffect, useRef, useState } from 'react';
 import Chart from 'react-apexcharts';
+
+const REDUCED_MOTION = typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+
+// [ref, seen]: `seen` turns true (and stays) once the element is at least 25% on screen; at once
+// with reduced motion or without IntersectionObserver
+function useInView() {
+  const ref = useRef(null);
+  const [seen, setSeen] = useState(REDUCED_MOTION || typeof IntersectionObserver === 'undefined');
+  useEffect(() => {
+    if (seen || !ref.current) return undefined;
+    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setSeen(true); io.disconnect(); } }, { threshold: 0.25 });
+    io.observe(ref.current);
+    return () => io.disconnect();
+  }, [seen]);
+  return [ref, seen];
+}
 
 // Charts of the Operational Dashboard (ApexCharts). Every chart uses the condition colors of the
 // cards (`statuses`: [{ key, label, color }]) and filters the item list when a part is selected.
@@ -219,15 +236,12 @@ export function ConditionTimeline({ items, updates, statuses, onOpen }) {
   );
 }
 
-const BAR_ROW = 15; // height of one bar slot in the grouped bars, px (compact, like ApexCharts' grouped bar demo)
-const BAR_THICK = 11; // every bar's thickness, px, the same in every row
-const NAME_WIDTH = 150; // the area names' column, the same in every row so the bars line up
-
 /**
- * Grouped bars (ApexCharts "Grouped Bar"): for each group (area), one horizontal bar per condition in
- * its color, with the number of items at the end of the bar. Each group is its own small chart with
- * only the conditions it has, so its bars sit centered on its name (one chart would keep an empty
- * slot for every condition in every group). All rows share one scale, shown under the last row.
+ * Grouped bars as animated striped progress bars (Bootstrap's "progress-bar-striped
+ * progress-bar-animated"): for each group (area or person), one horizontal bar per condition it has,
+ * in the condition's color with moving diagonal stripes, and the number of items at its end. All rows
+ * share one whole-number scale, shown under the last row. HTML rather than ApexCharts, which can fill
+ * a bar with stripes but not move them. The bars grow from 0 once the chart scrolls into view.
  * Selecting a bar calls onSelect(groupName, conditionKey).
  */
 export function ConditionGroupedBars({ title, groups, statuses, onSelect }) {
@@ -236,83 +250,45 @@ export function ConditionGroupedBars({ title, groups, statuses, onSelect }) {
   // A whole-number scale (step 1, 2, 5 or 10) with room for the count after the longest bar
   const step = most <= 10 ? 1 : most <= 20 ? 2 : most <= 50 ? 5 : 10;
   const max = Math.ceil((most + step * 0.6) / step) * step;
-  const ticks = max / step;
+  const ticks = Array.from({ length: max / step + 1 }, (_, k) => k * step);
+  const [boxRef, seen] = useInView();
+  let order = 0; // the bars' place in the sweep, top to bottom
 
   return (
-    <div className="op-chart">
+    <div className="op-chart" ref={boxRef}>
       <div className="op-chart__title">{title}</div>
-      <div className="op-grouped">
-        {groups.map((g, gi) => {
-          const parts = shown.filter((s) => countOf(g.items, s.key));
-          const last = gi === groups.length - 1;
-          const options = {
-            chart: {
-              type: 'bar',
-              toolbar: { show: false },
-              fontFamily: FONT,
-              parentHeightOffset: 0,
-              animations: { enabled: true, speed: 350 },
-              events: {
-                dataPointSelection: (_e, _c, { seriesIndex }) => parts[seriesIndex] && onSelect(g.name, parts[seriesIndex].key),
-                dataPointMouseEnter: (e) => { if (e?.target) e.target.style.cursor = 'pointer'; },
-              },
-            },
-            colors: parts.map((s) => s.color),
-            plotOptions: {
-              bar: {
-                horizontal: true,
-                // In pixels, not %: a % of each row's height made bars thicker in rows with fewer
-                // conditions and thinner in the last row (which also holds the scale)
-                barHeight: `${BAR_THICK}px`,
-                borderRadius: 3,
-                borderRadiusApplication: 'end',
-                dataLabels: { position: 'top' }, // the count at the end of each bar
-              },
-            },
-            dataLabels: {
-              enabled: true,
-              formatter: (v) => (v ? String(v) : ''),
-              offsetX: 16,
-              style: { fontSize: '11px', fontWeight: 700, colors: ['#304758'] },
-            },
-            stroke: { show: true, width: 1, colors: ['#ffffff'] },
-            xaxis: {
-              categories: [`${g.name} (${g.items.length})`],
-              min: 0,
-              max,
-              tickAmount: ticks,
-              labels: { show: last, formatter: (v) => String(Math.round(v)), style: { colors: MUTED, fontSize: '11px' } },
-              title: last ? { text: 'Items', style: { color: MUTED, fontSize: '11.5px', fontWeight: 600 } } : undefined,
-              axisBorder: { show: last },
-              axisTicks: { show: false },
-            },
-            yaxis: { labels: { minWidth: NAME_WIDTH, maxWidth: NAME_WIDTH, style: { colors: '#1f1a24', fontSize: '13px', fontWeight: 700 } } },
-            grid: {
-              borderColor: '#ece7f1',
-              strokeDashArray: 3,
-              xaxis: { lines: { show: true } },
-              yaxis: { lines: { show: false } },
-              padding: { top: -12, bottom: last ? 0 : -18, right: 24 },
-            },
-            legend: { show: false }, // one legend for all rows, below
-            tooltip: {
-              shared: false,
-              intersect: true,
-              custom: ({ seriesIndex }) => {
-                const s = parts[seriesIndex];
+      <div className={`op-hbars${seen ? ' op-hbars--in' : ''}`} style={{ '--ticks': max / step }}>
+        {groups.map((g) => (
+          <div key={g.name} className="op-hbars__row">
+            <div className="op-hbars__name" title={g.name}>{g.name} <span>({g.items.length})</span></div>
+            <div className="op-hbars__track">
+              {shown.filter((s) => countOf(g.items, s.key)).map((s) => {
                 const n = countOf(g.items, s.key);
-                return `<div class="sb-watchtip"><b>${escapeHtml(g.name)}</b><span>${escapeHtml(s.label)}: ${n} of ${g.items.length} item${g.items.length === 1 ? '' : 's'} (${pct(n, g.items.length)}%)</span><small>Click to see these items</small></div>`;
-              },
-            },
-            states: { hover: { filter: { type: 'darken', value: 0.9 } }, active: { filter: { type: 'none' } } },
-          };
-          return (
-            <div key={g.name} className="op-grouped__row">
-              <Chart type="bar" series={parts.map((s) => ({ name: s.label, data: [countOf(g.items, s.key)] }))} options={options}
-                height={Math.max(44, 16 + parts.length * BAR_ROW) + (last ? 46 : 0)} />
+                order += 1;
+                return (
+                  <button key={s.key} type="button" className="op-hbar" onClick={() => onSelect(g.name, s.key)}
+                    style={{ '--c': s.color, '--w': `${(n / max) * 100}%`, '--d': `${Math.min(order, 30) * 45}ms` }}
+                    aria-label={`${g.name}: ${s.label}, ${n} of ${plural(g.items.length)}`}>
+                    <span className="op-hbar__fill" />
+                    <b className="op-hbar__n">{n}</b>
+                    <span className="op-hbar__tip" role="tooltip">
+                      <strong>{g.name}</strong>
+                      {s.label}: {n} of {plural(g.items.length)} ({pct(n, g.items.length)}%)
+                      <small>Click to see these items</small>
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-          );
-        })}
+          </div>
+        ))}
+        <div className="op-hbars__row op-hbars__axis" aria-hidden="true">
+          <div className="op-hbars__name" />
+          <div className="op-hbars__scale">
+            {ticks.map((t) => <span key={t} style={{ left: `${(t / max) * 100}%` }}>{t}</span>)}
+          </div>
+        </div>
+        <div className="op-hbars__unit">Items</div>
       </div>
       <div className="sb-chartlegend op-grouped__legend" aria-label="Condition colors">
         {shown.map((s) => <span key={s.key}><i style={{ background: s.color }} />{s.label}</span>)}
@@ -320,6 +296,7 @@ export function ConditionGroupedBars({ title, groups, statuses, onSelect }) {
     </div>
   );
 }
+const plural = (n) => `${n} item${n === 1 ? '' : 's'}`;
 
 /**
  * Horizontal 100% stacked bars: one bar per group (area or person in charge) split by condition.

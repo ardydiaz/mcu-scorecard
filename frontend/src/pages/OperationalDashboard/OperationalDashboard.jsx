@@ -33,7 +33,6 @@ export default function OperationalDashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [search, setSearch] = useState('');
   const [detail, setDetail] = useState(null);
   // Items popup: null = closed; { status } = one condition ('all' = every item);
   // { area, status? } = one area; { pic, status? } = one person in charge
@@ -62,8 +61,7 @@ export default function OperationalDashboard() {
   const [listView, setListView] = useState('timeline');
   const hasTimeline = Boolean(items[0]?.history?.[0] && 'status' in items[0].history[0]);
   const asOf = data?.updates?.[data.updates.length - 1] || '—';
-  const q = search.trim().toLowerCase();
-  const shown = items.filter((it) => !q || [it.name, it.particular, it.latest, it.group, ...it.pic].join(' ').toLowerCase().includes(q));
+  const shown = items; // section 04 lists every item (the popups have their own search)
   // Items per person in charge (an item with several people counts for each), most items first
   const byPic = useMemo(() => {
     const map = new Map();
@@ -114,18 +112,19 @@ export default function OperationalDashboard() {
               <StatusLegend />
             </div>
             <div className="op-overview">
-            <div className="sb-cards op-cards">
-              <button type="button" className="sb-card sb-card--total" onClick={() => setPop({ status: 'all' })}>
-                <div className="sb-card__n">{items.length}</div>
+            <div className="sb-cards op-cards" onPointerMove={spotlight}>
+              <button type="button" className="sb-card sb-card--total op-fx" style={{ '--i': 0 }} onClick={() => setPop({ status: 'all' })}>
+                <div className="sb-card__n"><CountUp value={items.length} /></div>
                 <div className="sb-card__l">Total items</div>
-                <div className="sb-card__sub op-card__see">See all items →</div>
+                <div className="sb-card__sub op-card__see">See all items <span className="op-fx__arrow">→</span></div>
               </button>
-              {STATUSES.filter((s) => s.key !== 'none' || count(items, 'none')).map((s) => (
-                <button key={s.key} type="button" className="sb-card" style={{ '--c': s.color }}
+              {STATUSES.filter((s) => s.key !== 'none' || count(items, 'none')).map((s, i) => (
+                <button key={s.key} type="button" className="sb-card op-fx" style={{ '--c': s.color, '--i': i + 1 }}
                   onClick={() => setPop({ status: s.key })} disabled={!count(items, s.key)}>
-                  <div className="sb-card__n">{count(items, s.key)}</div>
+                  <div className="sb-card__n"><CountUp value={count(items, s.key)} /></div>
                   <div className="sb-card__l">{s.label}</div>
                   <div className="sb-card__sub"><b>{items.length ? Math.round((count(items, s.key) / items.length) * 100) : 0}%</b> of items</div>
+                  <span className="op-fx__hint" aria-hidden="true">View items <span className="op-fx__arrow">→</span></span>
                 </button>
               ))}
             </div>
@@ -157,12 +156,12 @@ export default function OperationalDashboard() {
               </p>
               <StatusLegend />
             </div>
-            <div className="op-people">
-              {byPic.map((p) => {
+            <div className="op-people" onPointerMove={spotlight}>
+              {byPic.map((p, i) => {
                 const rate = clearRate(p.items);
                 const flagged = p.items.filter((it) => it.status === 'issue' || it.status === 'checking').length;
                 return (
-                  <button key={p.name} type="button" className="op-person" style={{ '--c': clearColor(rate), '--p': rate }}
+                  <button key={p.name} type="button" className="op-person op-fx" style={{ '--c': clearColor(rate), '--p': rate, '--i': Math.min(i, 14) }}
                     onClick={() => setPop({ pic: p.name })}>
                     <span className="op-person__ring"><b>{p.name}</b></span>
                     <span className="op-person__info">
@@ -178,11 +177,11 @@ export default function OperationalDashboard() {
           </section>
 
           <section className="sb-section">
-            <div className="sb-head"><span>04</span><h2>Items and Latest Updates</h2></div>
-            <div className="op-filters">
-              <input className="input op-search" type="search" placeholder="Search items, updates or person in charge…"
-                value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search items" />
-              <span className="op-showing">{plural(shown.length, 'item')} shown</span>
+            <div className="sb-head op-head">
+              <span>04</span><h2>Items and Latest Updates</h2>
+              {/* on the heading's line, at the right */}
+              <div className="op-headtools">
+                <small className="op-showing">{plural(shown.length, 'item')} shown</small>
               {hasTimeline && (
                 <div className="segmented op-listview" role="group" aria-label="Show items as">
                   {[['timeline', 'Timeline'], ['cards', 'Cards']].map(([key, label]) => (
@@ -193,6 +192,7 @@ export default function OperationalDashboard() {
                   ))}
                 </div>
               )}
+              </div>
             </div>
             {hasTimeline && listView === 'timeline' && shown.length > 0 && (
               <div className="sb-subrow op-heatnote">
@@ -353,6 +353,36 @@ function ItemsDialog({ pop, items, sections, onClose, onOpen }) {
       )}
     </dialog>
   );
+}
+
+// Cards' hover spotlight: where the pointer is on the card, for the glow that follows it (CSS --mx/--my)
+function spotlight(e) {
+  const card = e.target.closest('.op-fx');
+  if (!card) return;
+  const r = card.getBoundingClientRect();
+  card.style.setProperty('--mx', `${e.clientX - r.left}px`);
+  card.style.setProperty('--my', `${e.clientY - r.top}px`);
+}
+
+// A number counting up from 0 when shown or changed (ease-out, 0.8 s); straight to it with reduced motion
+function CountUp({ value }) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      const id = requestAnimationFrame(() => setN(value));
+      return () => cancelAnimationFrame(id);
+    }
+    let raf;
+    const start = performance.now();
+    const tick = (t) => {
+      const p = Math.min(1, (t - start) / 800);
+      setN(Math.round(value * (1 - (1 - p) ** 3)));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return n;
 }
 
 function StatusLegend() {

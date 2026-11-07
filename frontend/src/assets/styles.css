@@ -1842,6 +1842,50 @@ body.xl-resizing-row, body.xl-resizing-row * { cursor: row-resize !important; us
 .op-grouped__row + .op-grouped__row { border-top: 1px dashed #ece7f1; }
 .op-grouped__legend { justify-content: center; margin: 4px 0 10px; }
 
+/* Grouped bars as animated striped progress bars (Bootstrap's progress-bar-striped + -animated) */
+.op-hbars { --name: 160px; --end: 34px; padding: 4px 6px 0; }
+.op-hbars__row { display: grid; grid-template-columns: var(--name) minmax(0, 1fr); gap: 14px; align-items: center; padding: 9px 0; border-bottom: 1px dashed #ece7f1; }
+.op-hbars__name { overflow: hidden; color: #1f1a24; font-size: 13px; font-weight: 700; text-align: right; white-space: nowrap; text-overflow: ellipsis; }
+.op-hbars__name span { color: var(--muted); font-weight: 600; }
+.op-hbars__track {
+  display: flex; flex-direction: column; gap: 4px; padding-right: var(--end);
+  /* a light line at every step of the scale */
+  background: linear-gradient(to right, #ece7f1 1px, transparent 1px) 0 0 / calc((100% - var(--end)) / var(--ticks)) 100% repeat-x;
+}
+.op-hbar { position: relative; display: flex; align-items: center; width: 100%; height: 14px; padding: 0; border: 0; background: none; font: inherit; cursor: pointer; }
+.op-hbar__fill {
+  flex: none; width: 0; height: 100%; border-radius: 4px; background-color: var(--c);
+  background-image: linear-gradient(45deg, rgba(255, 255, 255, 0.22) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.22) 50%, rgba(255, 255, 255, 0.22) 75%, transparent 75%, transparent);
+  background-size: 1rem 1rem;
+  animation: op-stripes 1s linear infinite;
+  transition: width 1s cubic-bezier(0.25, 0.8, 0.25, 1) var(--d, 0ms), filter 0.2s ease, box-shadow 0.2s ease;
+}
+@keyframes op-stripes { from { background-position: 1rem 0; } to { background-position: 0 0; } }
+.op-hbars--in .op-hbar__fill { width: var(--w); }
+.op-hbar__n { margin-left: 8px; color: #304758; font-size: 11.5px; font-weight: 800; opacity: 0; transition: opacity 0.35s ease calc(var(--d, 0ms) + 0.7s); }
+.op-hbars--in .op-hbar__n { opacity: 1; }
+.op-hbar:hover .op-hbar__fill, .op-hbar:focus-visible .op-hbar__fill { filter: brightness(1.1) saturate(1.1); box-shadow: 0 3px 10px -2px color-mix(in srgb, var(--c) 70%, transparent); }
+.op-hbar:focus-visible { outline: none; }
+/* hover tooltip, at the end of the bar */
+.op-hbar__tip {
+  position: absolute; bottom: calc(100% + 8px); left: min(var(--w), calc(100% - 220px)); z-index: 5; width: max-content; max-width: 240px;
+  display: flex; flex-direction: column; gap: 2px; padding: 8px 11px; border-radius: 8px; background: #1f1a24; color: #fff;
+  font-size: 12px; text-align: left; box-shadow: 0 8px 20px rgba(30, 14, 46, 0.25);
+  opacity: 0; transform: translateY(4px); pointer-events: none; transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.op-hbar__tip small { color: #cbbfd9; font-size: 11px; }
+.op-hbar:hover .op-hbar__tip, .op-hbar:focus-visible .op-hbar__tip { opacity: 1; transform: none; }
+/* the scale under the last row */
+.op-hbars__axis { padding: 6px 0 0; border-bottom: 0; }
+.op-hbars__scale { position: relative; height: 16px; margin-right: var(--end); border-top: 1px solid #ddd5e6; }
+.op-hbars__scale span { position: absolute; top: 3px; color: var(--muted); font-size: 11px; transform: translateX(-50%); }
+.op-hbars__unit { padding: 6px 0 4px calc(var(--name) + 14px); color: var(--muted); font-size: 11.5px; font-weight: 600; text-align: center; }
+@media (max-width: 640px) { .op-hbars { --name: 96px; } .op-hbar__tip { left: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .op-hbar__fill { animation: none; transition: none; }
+  .op-hbar__n { transition: none; }
+}
+
 /* 02: one radial gauge per area */
 .op-radials { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
 .op-radial {
@@ -1932,6 +1976,10 @@ body.xl-resizing-row, body.xl-resizing-row * { cursor: row-resize !important; us
 
 /* 04: condition timeline (heatmap, one row per item) */
 .op-listview { margin-left: 4px; }
+/* 04's heading with the item count and the Timeline/Cards switch on its line, at the right */
+.op-head { flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.op-headtools { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+.op-headtools .op-showing { margin-left: 0; font-size: 13px; }
 .op-heatnote { margin: -4px 0 14px; }
 .op-heat { padding: 8px 10px 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
 .op-heat .apexcharts-heatmap-rect { cursor: pointer; }
@@ -1941,7 +1989,67 @@ body.xl-resizing-row, body.xl-resizing-row * { cursor: row-resize !important; us
 
 /* Overall Condition popup: the items of one condition */
 .op-card__see { color: var(--muted); font-weight: 600; }
-.op-cards .sb-card:disabled { opacity: 0.55; cursor: default; }
+/* a filter, not opacity: the entrance animation ends on opacity 1 and would undo it */
+.op-cards .sb-card:disabled { filter: grayscale(0.5) opacity(0.55); cursor: default; }
+
+/* Overall Condition cards: entrance + hover animation (lift, glow in the condition color, a
+   spotlight following the pointer, a shine sweep, the number growing, a "View items" hint) */
+.op-fx {
+  position: relative; overflow: hidden; isolation: isolate;
+  animation: op-card-in 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: calc(var(--i, 0) * 70ms);
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.35s ease, border-color 0.35s ease;
+}
+@keyframes op-card-in { from { opacity: 0; transform: translateY(14px) scale(0.98); } to { opacity: 1; transform: none; } }
+.op-fx::before { /* spotlight */
+  content: ''; position: absolute; inset: 0; z-index: -1; opacity: 0; transition: opacity 0.3s ease;
+  background: radial-gradient(220px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--c) 16%, transparent), transparent 70%);
+}
+.op-fx::after { /* shine sweep */
+  content: ''; position: absolute; top: 0; bottom: 0; left: -60%; width: 45%; z-index: 1; pointer-events: none;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.55), transparent); transform: skewX(-18deg);
+}
+.op-fx .sb-card__n { transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1); transform-origin: left center; }
+.op-fx .sb-card__n, .op-fx .sb-card__l, .op-fx .sb-card__sub { position: relative; }
+.op-fx__hint {
+  position: absolute; left: 0; right: 0; bottom: 0; padding: 7px 0; text-align: center;
+  background: var(--c); color: #fff; font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+  transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.op-fx__arrow { display: inline-block; transition: transform 0.3s ease; }
+.op-fx:not(:disabled):hover, .op-fx:not(:disabled):focus-visible {
+  transform: translateY(-6px);
+  border-color: color-mix(in srgb, var(--c) 45%, var(--border));
+  box-shadow: 0 16px 32px -10px color-mix(in srgb, var(--c) 55%, transparent), 0 4px 10px rgba(30, 14, 46, 0.06);
+}
+.op-fx:not(:disabled):hover::before, .op-fx:not(:disabled):focus-visible::before { opacity: 1; }
+.op-fx:not(:disabled):hover::after { left: 130%; transition: left 0.75s ease; }
+.op-fx:not(:disabled):hover .sb-card__n { transform: scale(1.08); }
+.op-fx:not(:disabled):hover .op-fx__hint, .op-fx:not(:disabled):focus-visible .op-fx__hint { transform: none; }
+.op-fx:not(:disabled):hover .op-fx__arrow { transform: translateX(4px); }
+.op-fx:not(:disabled):active { transform: translateY(-2px) scale(0.99); transition-duration: 0.1s; }
+/* Person cards (03) with the same hover: their ring fills on load; on hover it pulses in its color,
+   the initials pop and the card lifts less (they are small) */
+.op-person.op-fx { animation-delay: calc(var(--i, 0) * 45ms); }
+.op-person__ring { animation: op-ring-in 1s cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: calc(0.15s + var(--i, 0) * 45ms); transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.op-person__ring b { transition: transform 0.35s cubic-bezier(0.3, 1.6, 0.5, 1), box-shadow 0.35s ease; }
+.op-person.op-fx:hover, .op-person.op-fx:focus-visible { transform: translateY(-4px); }
+/* the pulse is on a layer of its own: on the ring it would replace (and replay) the ring's fill animation */
+.op-person__ring { position: relative; }
+.op-person__ring::after { content: ''; position: absolute; inset: 0; border-radius: 50%; pointer-events: none; }
+.op-person.op-fx:hover .op-person__ring { transform: scale(1.06); }
+.op-person.op-fx:hover .op-person__ring::after { animation: op-pulse 1.3s ease-out infinite; }
+.op-person.op-fx:hover .op-person__ring b { transform: scale(1.1); box-shadow: 0 6px 14px -4px rgba(59, 10, 92, 0.6); }
+@keyframes op-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--c) 45%, transparent); }
+  100% { box-shadow: 0 0 0 12px transparent; }
+}
+.op-person .op-person__info strong { transition: color 0.3s ease; }
+.op-person.op-fx:hover .op-person__info strong { color: color-mix(in srgb, var(--c) 70%, #1f1a24); }
+
+@media (prefers-reduced-motion: reduce) {
+  .op-fx, .op-fx::after, .op-fx .sb-card__n, .op-fx__hint, .op-fx__arrow, .op-person__ring, .op-person__ring::after, .op-person__ring b { animation: none !important; transition: none; }
+  .op-fx:not(:disabled):hover { transform: none; }
+}
 .op-pop {
   width: min(94vw, 860px); max-height: 86vh; padding: 0; overflow: hidden; border: 0; border-radius: 20px;
   background: var(--bg); color: var(--text); box-shadow: 0 30px 80px rgba(30, 14, 46, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.06);
