@@ -4,7 +4,7 @@ import { getOperational } from '../../api/operationalApi';
 import Loader from '../../components/common/Loader';
 import ErrorMessage from '../../components/common/ErrorMessage';
 import OperationalExcel from './OperationalExcel';
-import { AreaRadials, ConditionBars, ConditionDonut, ConditionGroupedBars, clearColor, clearRate } from './OperationalCharts';
+import { AreaRadials, ConditionDonut, ConditionTimeline, ConditionGroupedBars, clearColor, clearRate } from './OperationalCharts';
 
 // Condition of an item, from its latest update (worked out by the server, see operational.service)
 const STATUSES = [
@@ -33,12 +33,10 @@ export default function OperationalDashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [area, setArea] = useState('');
-  const [status, setStatus] = useState('');
-  const [pic, setPic] = useState('');
   const [search, setSearch] = useState('');
   const [detail, setDetail] = useState(null);
-  // Items popup: null = closed; { status } = one condition ('all' = every item); { area, status? } = one area
+  // Items popup: null = closed; { status } = one condition ('all' = every item);
+  // { area, status? } = one area; { pic, status? } = one person in charge
   const [pop, setPop] = useState(null);
 
   const load = useCallback((refresh = false) => {
@@ -59,24 +57,19 @@ export default function OperationalDashboard() {
 
   const items = useMemo(() => (data?.sections || []).flatMap((s) => s.items.map((it) => ({ ...it, section: s.name }))), [data]);
   const count = (list, key) => list.filter((it) => it.status === key).length;
+  // Section 04 as a condition timeline (heatmap) or as cards; the timeline needs the condition of
+  // every update from the server (history[].status), otherwise only the cards are offered
+  const [listView, setListView] = useState('timeline');
+  const hasTimeline = Boolean(items[0]?.history?.[0] && 'status' in items[0].history[0]);
   const asOf = data?.updates?.[data.updates.length - 1] || '—';
   const q = search.trim().toLowerCase();
-  const shown = items.filter((it) => (!area || it.section === area) && (!status || it.status === status) && (!pic || it.pic.includes(pic))
-    && (!q || [it.name, it.particular, it.latest, it.group, ...it.pic].join(' ').toLowerCase().includes(q)));
+  const shown = items.filter((it) => !q || [it.name, it.particular, it.latest, it.group, ...it.pic].join(' ').toLowerCase().includes(q));
   // Items per person in charge (an item with several people counts for each), most items first
   const byPic = useMemo(() => {
     const map = new Map();
     items.forEach((it) => it.pic.forEach((p) => map.set(p, [...(map.get(p) || []), it])));
     return [...map.entries()].map(([name, list]) => ({ name, items: list })).sort((a, b) => b.items.length - a.items.length || a.name.localeCompare(b.name));
   }, [items]);
-  const listRef = useRef(null);
-  // A chart selection filters the item list and scrolls to it
-  const showItems = ({ area: a = '', status: s = '', pic: p = '' }) => {
-    setArea(a);
-    setStatus(s);
-    setPic(p);
-    listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
 
   return (
     <div className="page sb op">
@@ -142,11 +135,14 @@ export default function OperationalDashboard() {
 
           <section className="sb-section">
             <div className="sb-head"><span>02</span><h2>Condition by Area</h2></div>
-            <p className="sb-sub">
-              The four areas of ICT operations: Manpower, Materials, Machinery and Methods.
-              Each gauge shows how much of the area has no issues: items not needing attention and nothing waiting to be checked
-              (blue from 90%, yellow from 70%, red below). Select a gauge or a bar to see those items.
-            </p>
+            <div className="sb-subrow">
+              <p className="sb-sub">
+                The four areas of ICT operations: Manpower, Materials, Machinery and Methods.
+                Each gauge shows how much of the area has no issues: items not needing attention and nothing waiting to be checked
+                (blue from 90%, yellow from 70%, red below). Select a gauge or a bar to see those items.
+              </p>
+              <StatusLegend />
+            </div>
             <AreaRadials sections={data.sections} onSelect={(a) => setPop({ area: a })} />
             <ConditionGroupedBars title="Condition of each area" groups={data.sections} statuses={STATUSES}
               onSelect={(a, s) => setPop({ area: a, status: s })} />
@@ -154,39 +150,74 @@ export default function OperationalDashboard() {
 
           <section className="sb-section">
             <div className="sb-head"><span>03</span><h2>By Person in Charge</h2></div>
-            <p className="sb-sub">
-              The items each person in charge handles, by condition (an item with several people counts for each).
-              Select a bar to show that person&apos;s items.
-            </p>
-            <ConditionBars title="Condition of each person's items" groups={byPic} statuses={STATUSES}
-              onSelect={(p, s) => showItems({ pic: p, status: s })} />
+            <div className="sb-subrow">
+              <p className="sb-sub">
+                The items each person in charge handles, by condition (an item with several people counts for each).
+                Select a person or a bar to see their items.
+              </p>
+              <StatusLegend />
+            </div>
+            <div className="op-people">
+              {byPic.map((p) => {
+                const rate = clearRate(p.items);
+                const flagged = p.items.filter((it) => it.status === 'issue' || it.status === 'checking').length;
+                return (
+                  <button key={p.name} type="button" className="op-person" style={{ '--c': clearColor(rate), '--p': rate }}
+                    onClick={() => setPop({ pic: p.name })}>
+                    <span className="op-person__ring"><b>{p.name}</b></span>
+                    <span className="op-person__info">
+                      <strong>{plural(p.items.length, 'item')}</strong>
+                      {flagged > 0 ? <em className="op-person__flag">{flagged} to follow up</em> : <em className="op-person__ok">All good</em>}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <ConditionGroupedBars title="Condition of each person's items" groups={byPic} statuses={STATUSES}
+              onSelect={(p, s) => setPop({ pic: p, status: s })} />
           </section>
 
-          <section className="sb-section" ref={listRef}>
+          <section className="sb-section">
             <div className="sb-head"><span>04</span><h2>Items and Latest Updates</h2></div>
             <div className="op-filters">
               <input className="input op-search" type="search" placeholder="Search items, updates or person in charge…"
                 value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search items" />
-              {(area || status || pic) && (
-                <div className="op-active">
-                  {area && <button type="button" onClick={() => setArea('')}>{area} ✕</button>}
-                  {pic && <button type="button" onClick={() => setPic('')}>In charge: {pic} ✕</button>}
-                  {status && <button type="button" onClick={() => setStatus('')}>{statusOf(status).label} ✕</button>}
+              <span className="op-showing">{plural(shown.length, 'item')} shown</span>
+              {hasTimeline && (
+                <div className="segmented op-listview" role="group" aria-label="Show items as">
+                  {[['timeline', 'Timeline'], ['cards', 'Cards']].map(([key, label]) => (
+                    <button key={key} type="button" aria-pressed={listView === key} onClick={() => setListView(key)}
+                      className={listView === key ? 'segmented__btn segmented__btn--active' : 'segmented__btn'}>
+                      {label}
+                    </button>
+                  ))}
                 </div>
               )}
-              <span className="op-showing">{plural(shown.length, 'item')} shown</span>
             </div>
+            {hasTimeline && listView === 'timeline' && shown.length > 0 && (
+              <div className="sb-subrow op-heatnote">
+                <p className="sb-sub">
+                  Each row is an item and each column an update, colored by the item&apos;s condition at that time.
+                  Items needing attention are listed first. Hover a cell to read that update; select a row to see all its updates.
+                </p>
+                <StatusLegend />
+              </div>
+            )}
 
             {shown.length === 0 && <p className="sb-empty">No items match these filters.</p>}
-            {data.sections.filter((s) => !area || s.name === area).map((s) => {
+            {data.sections.map((s) => {
               const list = shown.filter((it) => it.section === s.name);
               if (!list.length) return null;
               return (
                 <div key={s.name} className="op-group">
                   <div className="op-group__head"><h3>{s.name}</h3><span>{plural(list.length, 'item')}</span></div>
-                  <div className="op-items">
-                    {list.map((it) => <ItemCard key={it.row} it={it} onOpen={() => setDetail(it)} />)}
-                  </div>
+                  {hasTimeline && listView === 'timeline' ? (
+                    <ConditionTimeline items={list} updates={data.updates} statuses={STATUSES} onOpen={setDetail} />
+                  ) : (
+                    <div className="op-items">
+                      {list.map((it) => <ItemCard key={it.row} it={it} onOpen={() => setDetail(it)} />)}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -203,8 +234,8 @@ export default function OperationalDashboard() {
 /**
  * Popup listing items, opened two ways:
  *  - { status }: one condition ('all' = every item), with tabs per area (Overall Condition)
- *  - { area, status? }: one area, with its condition breakdown and tabs per condition, starting on
- *    `status` when a bar was selected (Condition by Area)
+ *  - { area, status? } / { pic, status? }: one area or one person in charge, with its condition
+ *    breakdown and tabs per condition, starting on `status` when a bar was selected
  * Selecting an item opens its full history on top (ItemDialog); closing that returns here.
  */
 function ItemsDialog({ pop, items, sections, onClose, onOpen }) {
@@ -218,10 +249,13 @@ function ItemsDialog({ pop, items, sections, onClose, onOpen }) {
   }, [pop]);
   const close = () => { setQ(''); setTab(null); onClose(); };
 
-  const byArea = Boolean(pop?.area);
-  const base = !pop ? [] : byArea
+  // One area or one person in charge: the same layout (ring, breakdown, tabs per condition)
+  const byArea = Boolean(pop?.area || pop?.pic);
+  const base = !pop ? [] : pop.area
     ? items.filter((it) => it.section === pop.area)
-    : items.filter((it) => pop.status === 'all' || it.status === pop.status);
+    : pop.pic ? items.filter((it) => it.pic.includes(pop.pic))
+      : items.filter((it) => pop.status === 'all' || it.status === pop.status);
+  const picAreas = pop?.pic ? sections.filter((s) => base.some((it) => it.section === s.name)).map((s) => s.name) : [];
   const current = tab ?? (byArea ? pop.status || '' : '');
   // Tabs: the conditions of the area, or the areas of the condition (only those with items)
   const tabs = byArea
@@ -249,13 +283,16 @@ function ItemsDialog({ pop, items, sections, onClose, onOpen }) {
               <div className="op-pop__badge"><span>{base.length}</span><small>of {items.length}</small></div>
             )}
             <div className="op-pop__titles">
-              <div className="op-pop__eyebrow">{byArea ? 'Condition by area' : 'Overall condition'}</div>
-              <h3 id="op-pop-title">{byArea ? pop.area : st ? st.label : 'All items'}</h3>
+              <div className="op-pop__eyebrow">{pop.pic ? 'Person in charge' : byArea ? 'Condition by area' : 'Overall condition'}</div>
+              <h3 id="op-pop-title">{pop.pic || pop.area || (st ? st.label : 'All items')}</h3>
               <p>
                 {byArea
                   ? `${base.length - base.filter((it) => it.status === 'issue' || it.status === 'checking').length} of ${plural(base.length, 'item')} with no issues`
                   : `${items.length ? Math.round((base.length / items.length) * 100) : 0}% of all items · ${plural(tabs.length, 'area')}`}
               </p>
+              {picAreas.length > 0 && (
+                <div className="op-pop__areas">{picAreas.map((a) => <span key={a}>{a}</span>)}</div>
+              )}
             </div>
             <button type="button" className="op-pop__x" onClick={close} aria-label="Close">✕</button>
             {byArea && (

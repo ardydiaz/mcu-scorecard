@@ -101,7 +101,9 @@ function parseSheet(text) {
       previous,
       changed: Boolean(previous && latest && previous !== latest),
       status: statusOf(latest),
-      history: values.map((v, k) => ({ label: updates[k], text: v })),
+      // `status` = the condition as of that update, from the last update so far with a value (an empty
+      // column keeps the condition the item already had); used by the condition timeline
+      history: values.map((v, k) => ({ label: updates[k], text: v, status: statusOf(values.slice(0, k + 1).filter(Boolean).pop() || '') })),
     });
   });
   return { title: clean(header[0]) || 'Operational', updates, sections: sections.filter((s) => s.items.length) };

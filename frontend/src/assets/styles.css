@@ -1902,6 +1902,43 @@ body.xl-resizing-row, body.xl-resizing-row * { cursor: row-resize !important; us
 .op-history p { margin: 4px 0 0; font-size: 14px; line-height: 1.55; white-space: pre-line; }
 .op-history__empty { color: var(--muted); font-style: italic; }
 
+/* 03: a card per person in charge (ring = share of their items with no issues); opens their popup */
+.op-people { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.op-person {
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px; text-align: left;
+  border: 1px solid var(--border); border-radius: 14px; background: var(--surface); color: var(--text); font: inherit; cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.op-person:hover, .op-person:focus-visible {
+  transform: translateY(-2px); border-color: color-mix(in srgb, var(--c) 50%, transparent); box-shadow: 0 10px 22px rgba(59, 10, 92, 0.13);
+}
+.op-person__ring {
+  flex: none; display: grid; place-items: center; width: 76px; height: 76px; border-radius: 50%;
+  background: radial-gradient(closest-side, var(--surface) 72%, transparent 74%), conic-gradient(var(--c) calc(var(--p) * 1%), #ece5f2 0);
+}
+.op-person__ring b {
+  display: grid; place-items: center; width: 52px; height: 52px; border-radius: 50%;
+  background: linear-gradient(150deg, #3b0a5c, #57177a); color: #fff; font-size: 13.5px; font-weight: 800; letter-spacing: 0.04em;
+}
+.op-person__info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.op-person__info strong { font-size: 16px; font-weight: 800; }
+.op-person__info small { color: var(--muted); font-size: 12px; }
+.op-person__info em { align-self: flex-start; margin-top: 4px; padding: 2px 8px; border-radius: 100px; font-size: 10.5px; font-style: normal; font-weight: 700; white-space: nowrap; }
+.op-person__flag { background: #f6e2e2; color: #8a2b2b; }
+.op-person__ok { background: #e1ebf7; color: #1f4f86; }
+/* the person's areas in their popup header */
+.op-pop__areas { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.op-pop__areas span { padding: 2px 9px; border-radius: 100px; background: rgba(255, 255, 255, 0.14); color: #fff; font-size: 11px; font-weight: 600; }
+
+/* 04: condition timeline (heatmap, one row per item) */
+.op-listview { margin-left: 4px; }
+.op-heatnote { margin: -4px 0 14px; }
+.op-heat { padding: 8px 10px 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
+.op-heat .apexcharts-heatmap-rect { cursor: pointer; }
+.op-heattip { max-width: 320px; white-space: normal; }
+.op-heattip span { white-space: pre-line; }
+.op-heattip em { font-style: normal; font-weight: 700; }
+
 /* Overall Condition popup: the items of one condition */
 .op-card__see { color: var(--muted); font-weight: 600; }
 .op-cards .sb-card:disabled { opacity: 0.55; cursor: default; }

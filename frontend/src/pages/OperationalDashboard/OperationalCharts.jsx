@@ -24,7 +24,7 @@ export function ConditionDonut({ items, statuses, onSelect }) {
     colors: shown.map((s) => s.color),
     stroke: { width: 2, colors: ['#ffffff'] },
     dataLabels: { enabled: true, formatter: (v) => `${Math.round(v)}%`, dropShadow: { enabled: false }, style: { fontSize: '12px', fontWeight: 700 } },
-    legend: { position: 'bottom', fontSize: '12.5px', fontWeight: 600, markers: { size: 6, shape: 'square' }, itemMargin: { horizontal: 8, vertical: 2 } },
+    legend: { show: false }, // the section's legend (above the cards) already names the colors
     plotOptions: {
       pie: {
         donut: {
@@ -106,7 +106,121 @@ export function AreaRadials({ sections, active, onSelect }) {
   );
 }
 
-const BAR_ROW = 20; // height of one bar slot in the grouped bars, px
+const CELL_ROW = 26; // height of one item row in the condition timeline, px
+// Mark of each condition in the timeline's cells, where the condition starts
+const MARK = { issue: '!', checking: '?', good: '✓', noted: '•', none: '–' };
+
+/**
+ * Condition timeline (ApexCharts heatmap): one row per item, one column per update, each cell in the
+ * item's condition at that update (history[].status from the server). Items needing attention come
+ * first, then for checking, so a solid red row (a long-running problem) stands out at the top.
+ * A cell is marked (! ? ✓ • –) only where the condition starts, and the last cell says how many
+ * updates in a row the item has had its current condition ("7w"), so changes and long-running
+ * problems stand out. Hovering a cell shows that update's text; selecting a row calls onOpen(item).
+ */
+export function ConditionTimeline({ items, updates, statuses, onOpen }) {
+  const rank = (it) => { const i = statuses.findIndex((s) => s.key === it.status); return i < 0 ? statuses.length : i; };
+  // Longest-running first within a condition: the item stuck the longest is the one to follow up
+  const streakOf = (it) => {
+    const h = it.history;
+    let n = 0;
+    for (let k = h.length - 1; k >= 0 && h[k].status === h[h.length - 1].status; k -= 1) n += 1;
+    return n;
+  };
+  const rows = [...items].sort((a, b) => rank(a) - rank(b) || streakOf(b) - streakOf(a) || a.name.localeCompare(b.name));
+  // A heatmap draws its first series at the bottom: reverse, so the list reads top-down
+  const drawn = [...rows].reverse();
+  const code = (key) => Math.max(0, statuses.findIndex((s) => s.key === key)) + 1;
+  const short = (s) => (s.length > 34 ? `${s.slice(0, 33)}…` : s);
+  // The text of every cell: the streak in the last one, the condition's mark in the others. `strong`
+  // where the condition starts; the repeats are faded so the changes still stand out
+  const marks = drawn.map((it) => {
+    const h = it.history;
+    return updates.map((_, k) => {
+      if (k === updates.length - 1) return { t: `${streakOf(it)}w`, strong: true };
+      const s = h[k]?.status || 'none';
+      return { t: MARK[s] || '', strong: k === 0 || s !== h[k - 1]?.status };
+    });
+  });
+  // ApexCharts styles all labels alike: fade the repeats after each draw. Each row is a
+  // .apexcharts-heatmap-series group (data:realIndex = its series) holding its labels in column order.
+  const fadeRepeats = (ctx) => {
+    ctx.el.querySelectorAll('.apexcharts-heatmap-series').forEach((g) => {
+      const row = marks[Number(g.getAttribute('data:realIndex'))];
+      g.querySelectorAll('.apexcharts-datalabel').forEach((t, k) => { t.style.opacity = row?.[k]?.strong === false ? '0.55' : '1'; });
+    });
+  };
+
+  const options = {
+    chart: {
+      type: 'heatmap',
+      toolbar: { show: false },
+      fontFamily: FONT,
+      parentHeightOffset: 0,
+      animations: { enabled: false },
+      events: {
+        mounted: fadeRepeats,
+        updated: fadeRepeats,
+        dataPointSelection: (_e, _c, { seriesIndex }) => drawn[seriesIndex] && onOpen(drawn[seriesIndex]),
+        dataPointMouseEnter: (e) => { if (e?.target) e.target.style.cursor = 'pointer'; },
+      },
+    },
+    plotOptions: {
+      heatmap: {
+        radius: 4,
+        enableShades: false,
+        useFillColorAsStroke: false,
+        colorScale: { ranges: statuses.map((s, i) => ({ from: i + 1, to: i + 1, color: s.color, name: s.label })) },
+      },
+    },
+    stroke: { width: 2, colors: ['#ffffff'] },
+    dataLabels: {
+      enabled: true,
+      formatter: (_v, { seriesIndex, dataPointIndex }) => marks[seriesIndex]?.[dataPointIndex]?.t ?? '',
+      style: { colors: ['#ffffff'], fontSize: '12.5px', fontWeight: 800, fontFamily: FONT },
+      dropShadow: { enabled: true, top: 0, left: 0, blur: 2, color: '#000', opacity: 0.45 }, // readable on yellow too
+    },
+    legend: { show: false }, // the section's legend names the colors
+    xaxis: {
+      position: 'top',
+      // Flat dates: slanted ones take the height of the cells (one item's row was squashed to a line)
+      labels: { style: { colors: MUTED, fontSize: '11px', fontWeight: 600 }, rotate: 0, hideOverlappingLabels: true, trim: true },
+      axisBorder: { show: false },
+      axisTicks: { show: false },
+      tooltip: { enabled: false },
+    },
+    // A fixed name column (the same in every area, so the cells line up), names right-aligned:
+    // align 'left' pushes long names off the left edge
+    yaxis: { labels: { minWidth: 240, maxWidth: 240, style: { colors: '#1f1a24', fontSize: '12.5px', fontWeight: 600 } } },
+    grid: { padding: { top: 0, right: 8, bottom: 0, left: 4 } },
+    states: { hover: { filter: { type: 'darken', value: 0.88 } }, active: { filter: { type: 'none' } } },
+    tooltip: {
+      custom: ({ seriesIndex, dataPointIndex }) => {
+        const it = drawn[seriesIndex];
+        const h = it?.history[dataPointIndex];
+        if (!h) return '';
+        const st = statuses.find((s) => s.key === h.status) || statuses[statuses.length - 1];
+        const body = h.text ? escapeHtml(h.text) : `<i>No new update, still: ${escapeHtml(st.label)}</i>`;
+        const n = streakOf(it);
+        const streak = dataPointIndex === updates.length - 1
+          ? `<small>${escapeHtml(st.label)} for the last ${n} update${n === 1 ? '' : 's'}</small>` : '';
+        return `<div class="sb-watchtip op-heattip"><b>${escapeHtml(it.name)}</b><small>${escapeHtml(h.label)} · <em style="color:${st.color}">${escapeHtml(st.label)}</em></small><span>${body}</span>${streak}<small>Click to see all updates</small></div>`;
+      },
+    },
+  };
+  const series = drawn.map((it) => ({
+    name: short(it.name),
+    data: updates.map((label, k) => ({ x: label, y: code(it.history[k]?.status || 'none') })),
+  }));
+  return (
+    <div className="op-heat">
+      <Chart type="heatmap" series={series} options={options} height={rows.length * CELL_ROW + 60} />
+    </div>
+  );
+}
+
+const BAR_ROW = 15; // height of one bar slot in the grouped bars, px (compact, like ApexCharts' grouped bar demo)
+const BAR_THICK = 11; // every bar's thickness, px, the same in every row
 const NAME_WIDTH = 150; // the area names' column, the same in every row so the bars line up
 
 /**
@@ -119,8 +233,10 @@ const NAME_WIDTH = 150; // the area names' column, the same in every row so the 
 export function ConditionGroupedBars({ title, groups, statuses, onSelect }) {
   const shown = statuses.filter((s) => groups.some((g) => countOf(g.items, s.key)));
   const most = Math.max(1, ...groups.flatMap((g) => shown.map((s) => countOf(g.items, s.key))));
-  const max = most + Math.max(1, Math.ceil(most * 0.08)); // room for the count after the longest bar
-  const ticks = Math.min(max, 10);
+  // A whole-number scale (step 1, 2, 5 or 10) with room for the count after the longest bar
+  const step = most <= 10 ? 1 : most <= 20 ? 2 : most <= 50 ? 5 : 10;
+  const max = Math.ceil((most + step * 0.6) / step) * step;
+  const ticks = max / step;
 
   return (
     <div className="op-chart">
@@ -134,6 +250,7 @@ export function ConditionGroupedBars({ title, groups, statuses, onSelect }) {
               type: 'bar',
               toolbar: { show: false },
               fontFamily: FONT,
+              parentHeightOffset: 0,
               animations: { enabled: true, speed: 350 },
               events: {
                 dataPointSelection: (_e, _c, { seriesIndex }) => parts[seriesIndex] && onSelect(g.name, parts[seriesIndex].key),
@@ -144,7 +261,9 @@ export function ConditionGroupedBars({ title, groups, statuses, onSelect }) {
             plotOptions: {
               bar: {
                 horizontal: true,
-                barHeight: '84%',
+                // In pixels, not %: a % of each row's height made bars thicker in rows with fewer
+                // conditions and thinner in the last row (which also holds the scale)
+                barHeight: `${BAR_THICK}px`,
                 borderRadius: 3,
                 borderRadiusApplication: 'end',
                 dataLabels: { position: 'top' }, // the count at the end of each bar
@@ -153,7 +272,7 @@ export function ConditionGroupedBars({ title, groups, statuses, onSelect }) {
             dataLabels: {
               enabled: true,
               formatter: (v) => (v ? String(v) : ''),
-              offsetX: 18,
+              offsetX: 16,
               style: { fontSize: '11px', fontWeight: 700, colors: ['#304758'] },
             },
             stroke: { show: true, width: 1, colors: ['#ffffff'] },
@@ -173,7 +292,7 @@ export function ConditionGroupedBars({ title, groups, statuses, onSelect }) {
               strokeDashArray: 3,
               xaxis: { lines: { show: true } },
               yaxis: { lines: { show: false } },
-              padding: { top: -10, bottom: last ? 0 : -14, right: 24 },
+              padding: { top: -12, bottom: last ? 0 : -18, right: 24 },
             },
             legend: { show: false }, // one legend for all rows, below
             tooltip: {
@@ -190,7 +309,7 @@ export function ConditionGroupedBars({ title, groups, statuses, onSelect }) {
           return (
             <div key={g.name} className="op-grouped__row">
               <Chart type="bar" series={parts.map((s) => ({ name: s.label, data: [countOf(g.items, s.key)] }))} options={options}
-                height={Math.max(56, 24 + parts.length * BAR_ROW) + (last ? 46 : 0)} />
+                height={Math.max(44, 16 + parts.length * BAR_ROW) + (last ? 46 : 0)} />
             </div>
           );
         })}
