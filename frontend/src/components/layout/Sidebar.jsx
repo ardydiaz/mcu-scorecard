@@ -4,6 +4,7 @@ import useAuth from '../../hooks/useAuth';
 
 // Menu icons (24×24 line drawings, drawn with the text color)
 const ICONS = {
+  operations: <path d="M3 3v18h18M7 15l4-4 3 3 6-6M17 8h3v3" />,
   dashboard: <path d="M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z" />,
   map: <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14" />,
   sheet: <path d="M3 5h18v14H3zM3 10h18M3 15h18M9 5v14" />,
@@ -17,6 +18,7 @@ const ICONS = {
 const Icon = ({ name }) => <svg className="sidebar__icon" viewBox="0 0 24 24" aria-hidden="true">{ICONS[name]}</svg>;
 
 const links = [
+  { to: '/operational-dashboard', label: 'Operational Dashboard', icon: 'operations' },
   { to: '/dashboard', label: 'Strategy Scoreboard', icon: 'dashboard' },
   { to: '/strategy-map', label: 'Scoredcard - Live Agenda', icon: 'sheet' },
   { to: '/strategy', label: 'Strategy Map', icon: 'map' },

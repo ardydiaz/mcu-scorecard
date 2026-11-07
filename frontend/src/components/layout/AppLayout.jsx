@@ -6,6 +6,7 @@ import { logActivity } from '../../api/auditApi';
 
 // Page names recorded in the audit log
 const PAGE_NAMES = {
+  '/operational-dashboard': 'Operational Dashboard',
   '/dashboard': 'Strategy Scoreboard',
   '/strategy': 'Strategy Map',
   '/strategy-map': 'Live Agenda (Excel grid)',

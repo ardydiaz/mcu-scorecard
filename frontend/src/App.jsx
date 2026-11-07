@@ -3,6 +3,7 @@ import ProtectedRoute from './auth/ProtectedRoute';
 import AppLayout from './components/layout/AppLayout';
 import Login from './pages/Login/Login';
 import Dashboard from './pages/Dashboard/Dashboard';
+import OperationalDashboard from './pages/OperationalDashboard/OperationalDashboard';
 import StrategyMap from './pages/StrategyMap/StrategyMap';
 import StrategyDiagram from './pages/StrategyDiagram/StrategyDiagram';
 import AboutMcu from './pages/Home/AboutMcu';
@@ -22,6 +23,7 @@ export default function App() {
 
       <Route element={<ProtectedRoute />}>
         <Route element={<AppLayout />}>
+          <Route path="/operational-dashboard" element={<OperationalDashboard />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/strategy" element={<StrategyDiagram />} />
           <Route path="/strategy-map" element={<StrategyMap />} />

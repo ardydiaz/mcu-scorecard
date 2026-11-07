@@ -13,6 +13,7 @@ const departmentRoutes = require('./routes/department.routes');
 const auditRoutes = require('./routes/audit.routes');
 const accessRuleRoutes = require('./routes/accessRule.routes');
 const workbookRoutes = require('./routes/workbook.routes');
+const operationalRoutes = require('./routes/operational.routes');
 
 const app = express();
 
@@ -33,6 +34,7 @@ app.use('/api/departments', departmentRoutes);
 app.use('/api/audit-logs', auditRoutes);
 app.use('/api/access-rules', accessRuleRoutes);
 app.use('/api/workbooks', workbookRoutes);
+app.use('/api/operational', operationalRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
