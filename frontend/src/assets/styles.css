@@ -1229,10 +1229,10 @@ a.btn { text-decoration: none; }
   font: inherit; cursor: pointer; transition: box-shadow 0.2s ease, transform 0.2s ease;
 }
 .sb-card:hover { transform: translateY(-3px); box-shadow: 0 10px 22px rgba(59, 10, 92, 0.15); }
-.sb-card__n { color: var(--c); font-family: var(--sb-serif); font-size: 38px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.sb-card__n { color: var(--c); font-family: var(--sb-serif); font-size: 50px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
 .sb-card__l { margin-top: 8px; color: var(--muted); font-family: var(--sb-mono); font-size: 14px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; }
 .sb-card__sub { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); color: var(--muted); font-family: var(--sb-mono); font-size: 13px; }
-.sb-card__sub b { color: var(--text); font-size: 15px; }
+.sb-card__sub b { color: var(--text); font-size: 20px; }
 .sb-card--total { --c: #57177a; }
 .sb-card--total .sb-card__n { font-size: 68px; letter-spacing: -0.01em; }
 

@@ -388,7 +388,7 @@ function CountUp({ value }) {
 function StatusLegend() {
   return (
     <div className="sb-chartlegend sb-statuslegend" aria-label="Condition colors">
-      {STATUSES.filter((s) => s.key !== 'none').map((s) => <span key={s.key}><i style={{ background: s.color }} />{s.label}</span>)}
+      {STATUSES.map((s) => <span key={s.key}><i style={{ background: s.color }} />{s.label}</span>)}
     </div>
   );
 }
