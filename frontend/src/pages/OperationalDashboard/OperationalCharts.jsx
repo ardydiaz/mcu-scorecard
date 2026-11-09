@@ -131,9 +131,10 @@ const MARK = { issue: '!', checking: '?', good: '✓', noted: '•', none: '–'
  * Condition timeline (ApexCharts heatmap): one row per item, one column per update, each cell in the
  * item's condition at that update (history[].status from the server). Items needing attention come
  * first, then for checking, so a solid red row (a long-running problem) stands out at the top.
- * A cell is marked (! ? ✓ • –) only where the condition starts, and the last cell says how many
- * updates in a row the item has had its current condition ("7w"), so changes and long-running
- * problems stand out. Hovering a cell shows that update's text; selecting a row calls onOpen(item).
+ * Every cell shows its condition's mark (! ? ✓ • –), bright where the condition starts and faded where
+ * it repeats, so changes and long-running problems stand out. Hovering a cell shows that update's
+ * text (the last one also says for how many updates the condition has lasted); selecting a row calls
+ * onOpen(item).
  */
 export function ConditionTimeline({ items, updates, statuses, onOpen }) {
   const rank = (it) => { const i = statuses.findIndex((s) => s.key === it.status); return i < 0 ? statuses.length : i; };
@@ -149,12 +150,11 @@ export function ConditionTimeline({ items, updates, statuses, onOpen }) {
   const drawn = [...rows].reverse();
   const code = (key) => Math.max(0, statuses.findIndex((s) => s.key === key)) + 1;
   const short = (s) => (s.length > 34 ? `${s.slice(0, 33)}…` : s);
-  // The text of every cell: the streak in the last one, the condition's mark in the others. `strong`
-  // where the condition starts; the repeats are faded so the changes still stand out
+  // The text of every cell: the condition's mark. `strong` where the condition starts; the repeats
+  // are faded so the changes still stand out
   const marks = drawn.map((it) => {
     const h = it.history;
     return updates.map((_, k) => {
-      if (k === updates.length - 1) return { t: `${streakOf(it)}w`, strong: true };
       const s = h[k]?.status || 'none';
       return { t: MARK[s] || '', strong: k === 0 || s !== h[k - 1]?.status };
     });
