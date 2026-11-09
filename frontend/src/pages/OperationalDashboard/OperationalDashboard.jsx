@@ -137,12 +137,12 @@ export default function OperationalDashboard() {
             <div className="sb-subrow">
               <p className="sb-sub">
                 The four areas of ICT operations: Manpower, Materials, Machinery and Methods.
-                Each gauge shows how much of the area has no issues: items not needing attention and nothing waiting to be checked
-                (blue from 90%, yellow from 70%, red below). Select a gauge or a bar to see those items.
+                Each gauge is split into the area&apos;s items: no issues in blue (the % in the middle), needing attention in red and
+                for checking in yellow. Select a gauge or a bar to see those items.
               </p>
               <StatusLegend />
             </div>
-            <AreaRadials sections={data.sections} onSelect={(a) => setPop({ area: a })} />
+            <AreaRadials sections={data.sections} onSelect={(a, s) => setPop({ area: a, status: s })} />
             <ConditionGroupedBars title="Condition of each area" groups={data.sections} statuses={STATUSES}
               onSelect={(a, s) => setPop({ area: a, status: s })} />
           </section>
@@ -161,7 +161,7 @@ export default function OperationalDashboard() {
                 const rate = clearRate(p.items);
                 const flagged = p.items.filter((it) => it.status === 'issue' || it.status === 'checking').length;
                 return (
-                  <button key={p.name} type="button" className="op-person op-fx" style={{ '--c': clearColor(rate), '--p': rate, '--i': Math.min(i, 14) }}
+                  <button key={p.name} type="button" className="op-person op-fx" style={{ '--c': clearColor(p.items), '--p': rate, '--i': Math.min(i, 14) }}
                     onClick={() => setPop({ pic: p.name })}>
                     <span className="op-person__ring"><b>{p.name}</b></span>
                     <span className="op-person__info">
@@ -267,7 +267,7 @@ function ItemsDialog({ pop, items, sections, onClose, onOpen }) {
 
   const st = !byArea && pop && pop.status !== 'all' ? statusOf(pop.status) : null;
   const okRate = byArea ? clearRate(base) : 0;
-  const color = byArea ? clearColor(okRate) : st ? st.color : '#57177a';
+  const color = byArea ? clearColor(base) : st ? st.color : '#57177a';
   const showPill = byArea || pop?.status === 'all'; // the list mixes conditions
 
   return (

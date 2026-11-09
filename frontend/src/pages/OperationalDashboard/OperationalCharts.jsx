@@ -25,9 +25,11 @@ const pct = (n, total) => (total ? Math.round((n / total) * 100) : 0);
 const countOf = (list, key) => list.filter((it) => it.status === key).length;
 const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
-// "Clear" = no issue and nothing waiting to be checked; the gauge color says how healthy that is
-const CLEAR_LEVELS = [[90, '#2d6cb5'], [70, '#ffbc00'], [0, '#a93b3b']]; // blue = "Good condition"
-export const clearColor = (value) => CLEAR_LEVELS.find(([min]) => value >= min)[1];
+// "Clear" = no issue and nothing waiting to be checked. A gauge's color is the most serious condition
+// among its items, in the legend's colors (so yellow always means "For checking"): red when any item
+// needs attention, else yellow when any is for checking, else blue ("Good condition").
+const SERIOUS = [['issue', '#a93b3b'], ['checking', '#ffbc00']];
+export const clearColor = (list) => SERIOUS.find(([key]) => list.some((it) => it.status === key))?.[1] || '#2d6cb5';
 // Rounded down, so an area still having an item to deal with never shows 100%
 export const clearRate = (list) => (list.length
   ? Math.floor((list.filter((it) => it.status !== 'issue' && it.status !== 'checking').length / list.length) * 100) : 0);
@@ -66,9 +68,19 @@ export function ConditionDonut({ items, statuses, onSelect }) {
   );
 }
 
+// Gauge segments, in the legend's colors: no issues (blue), needs attention (red), for checking (yellow)
+const GAUGE_PARTS = [
+  { key: 'clear', color: '#2d6cb5' },
+  { key: 'issue', color: '#a93b3b' },
+  { key: 'checking', color: '#ffbc00' },
+];
+
 /**
- * Gauges with ticks, one per area: the share of its items with no issues (none needing attention or
- * waiting for a check), blue from 90%, yellow from 70%, red below. Selecting a gauge filters by that area.
+ * Gauges with ticks, one per area, split into the shares of its items: no issues (blue, from 0), then
+ * needing attention (red), then for checking (yellow), so each color means what it means in the
+ * legend and the size of each problem shows. The % in the middle is the no-issues share. The parts
+ * are gauge bands; the value arc itself is transparent. Selecting a part calls onSelect(area,
+ * condition) (blue: onSelect(area)); selecting the rest of the card calls onSelect(area).
  */
 export function AreaRadials({ sections, active, onSelect }) {
   return (
@@ -77,29 +89,59 @@ export function AreaRadials({ sections, active, onSelect }) {
         const value = clearRate(s.items);
         const issues = countOf(s.items, 'issue');
         const checking = countOf(s.items, 'checking');
+        const total = s.items.length || 1;
+        const sizes = { clear: s.items.length - issues - checking, issue: issues, checking };
+        const parts = GAUGE_PARTS.filter((p) => sizes[p.key] > 0);
+        let from = 0;
+        const bands = parts.map((p) => {
+          const to = from + (sizes[p.key] / total) * 100;
+          const band = { from, to: Math.min(100, to), color: p.color };
+          from = to;
+          return band;
+        });
+        // Each colored part opens the area on its condition (blue = all the area's items). ApexCharts has
+        // no click event for bands, so it's set on the band paths (data-band-index) after each draw.
+        const wireBands = (ctx) => {
+          ctx.el.querySelectorAll('.apexcharts-gauge-band').forEach((path) => {
+            const part = parts[Number(path.getAttribute('data-band-index'))];
+            if (!part) return;
+            path.classList.add('op-band');
+            path.onclick = (e) => {
+              e.stopPropagation();
+              onSelect(s.name, part.key === 'clear' ? undefined : part.key);
+            };
+          });
+        };
         // "Gauge with Ticks": a scale of 0–100 around the arc (major tick every 10, minor ticks between)
         const options = {
-          chart: { type: 'gauge', fontFamily: FONT, toolbar: { show: false }, animations: { enabled: true, speed: 600 } },
-          colors: [clearColor(value)],
+          chart: {
+            type: 'gauge', fontFamily: FONT, toolbar: { show: false }, animations: { enabled: true, speed: 600 },
+            events: { mounted: wireBands, updated: wireBands },
+          },
+          colors: ['transparent'], // the bands draw the gauge
           plotOptions: {
             radialBar: {
               startAngle: -135,
               endAngle: 135,
+              bands,
+              bandsStyle: { strokeWidth: '100%', gap: 2, hideTrackWhenPresent: true, linecap: 'butt' },
               ticks: {
                 show: true,
                 major: { count: 11, length: 9, width: 2, color: '#6b6478', placement: 'outside' },
                 minor: { count: 3, length: 5, width: 1, color: '#b9b1c4', placement: 'outside' },
-                labels: { show: true, offset: 6, fontSize: '9.5px', fontFamily: FONT, color: MUTED, formatter: (v) => String(Math.round(v)) },
+                // Ticks start at the middle of the arc: the labels sit past the thick band's outer edge
+                labels: { show: true, offset: 16, fontSize: '10.5px', fontWeight: 700, fontFamily: FONT, color: '#4a4356', formatter: (v) => String(Math.round(v)) },
               },
-              hollow: { margin: 10, size: '52%' },
-              track: { strokeWidth: '70%', background: '#ece5f2' },
+              // A smaller hollow makes a thicker arc
+              hollow: { margin: 6, size: '40%' },
+              track: { strokeWidth: '100%', background: '#ece5f2' },
               dataLabels: {
-                name: { show: true, offsetY: 24, fontSize: '11.5px', fontWeight: 600, color: MUTED },
-                value: { show: true, offsetY: -8, fontSize: '26px', fontWeight: 800, color: '#1f1a24', formatter: (v) => `${Math.round(v)}%` },
+                name: { show: false },
+                value: { show: true, offsetY: 10, fontSize: '28px', fontWeight: 800, color: '#1f1a24', formatter: (v) => `${Math.round(v)}%` },
               },
             },
           },
-          labels: ['no issues'],
+          labels: ['No issues'],
           // Flat ends: a rounded cap pokes out past the value, so 59% looked like it reached 60+ on the scale
           stroke: { lineCap: 'butt' },
           tooltip: { enabled: false },
@@ -107,8 +149,8 @@ export function AreaRadials({ sections, active, onSelect }) {
         const ok = s.items.length - issues - checking;
         return (
           <button key={s.name} type="button" className={`op-radial${active === s.name ? ' op-on' : ''}`}
-            style={{ '--c': clearColor(value) }} onClick={() => onSelect(s.name)} aria-pressed={active === s.name}>
-            <Chart type="gauge" series={[value]} options={options} height={220} />
+            style={{ '--c': '#57177a' }} onClick={() => onSelect(s.name)} aria-pressed={active === s.name}>
+            <Chart type="gauge" series={[value]} options={options} height={260} />
             <h3>{s.name}</h3>
             <p>{ok} of {s.items.length} item{s.items.length === 1 ? '' : 's'} with no issues</p>
             <div className="op-radial__flags">
