@@ -1815,7 +1815,8 @@ body.xl-resizing-row, body.xl-resizing-row * { cursor: row-resize !important; us
   background: var(--surface); box-shadow: 0 14px 30px rgba(30, 14, 46, 0.22); color: var(--text); font-size: 13px; line-height: 1.45;
   text-align: left; pointer-events: none; animation: sb-why-in 0.16s ease-out;
 }
-.sb-why::before { content: ''; position: absolute; top: -10px; left: 50%; border: 6px solid transparent; border-bottom-color: var(--sb-completed); transform: translateX(-50%); }
+/* arrow sits flush on the 4px top border (top = -(2 × 8px) - 4px border) */
+.sb-why::before { content: ''; position: absolute; top: -20px; left: 50%; border: 8px solid transparent; border-bottom-color: var(--sb-completed); transform: translateX(-50%); }
 @keyframes sb-why-in { from { opacity: 0; transform: translate(-50%, 4px); } }
 .sb-why p { margin: 6px 0 0; }
 .sb-why small { color: var(--muted); }
