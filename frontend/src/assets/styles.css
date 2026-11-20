@@ -1828,6 +1828,7 @@ body.xl-resizing-row, body.xl-resizing-row * { cursor: row-resize !important; us
 .sb-why__delta.is-up { color: var(--sb-completed); }
 .sb-why { width: min(330px, 90vw); }
 .sb-why__sub { margin-top: 10px; color: #3b0a5c; font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.sb-why__sub--first { margin-top: 0; }
 .sb-why__stack { display: flex; gap: 2px; height: 8px; margin-top: 5px; overflow: hidden; border-radius: 4px; }
 .sb-why__stack i { flex-basis: 0; min-width: 3px; }
 .sb-why__status { margin: 6px 0 0; padding: 0; list-style: none; }
@@ -1840,7 +1841,7 @@ body.xl-resizing-row, body.xl-resizing-row * { cursor: row-resize !important; us
 .sb-why__weeks > div { flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; }
 .sb-why__weeks b { color: var(--text); font-size: 10.5px; font-weight: 800; }
 .sb-why__weeks span { display: flex; align-items: flex-end; width: 100%; max-width: 26px; height: 46px; margin-top: 2px; overflow: hidden; border-radius: 4px 4px 0 0; background: #eef3ee; }
-.sb-why__weeks span i { display: block; width: 100%; background: color-mix(in srgb, var(--sb-completed) 55%, #fff); }
+.sb-why__weeks span i { display: block; width: 100%; background: var(--sb-completed); }
 .sb-why__weeks .is-now span i { background: var(--sb-completed); }
 .sb-why__weeks .is-now b { color: var(--sb-completed); }
 .sb-why__weeks small { margin-top: 3px; overflow: hidden; color: var(--muted); font-size: 9.5px; white-space: nowrap; text-overflow: ellipsis; max-width: 100%; }

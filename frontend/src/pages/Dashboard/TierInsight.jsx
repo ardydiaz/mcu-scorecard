@@ -15,6 +15,10 @@ const round = (x) => Math.round(x);
 const snapShort = (s) => (s?.date
   ? new Date(`${s.date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
   : s?.label || '');
+// Updates left out of the week-by-week views (22 Aug: a note marked "Completed" that later updates
+// put back in progress, so its completed share isn't comparable)
+const SKIP_WEEKS = new Set(['2026-08-22']);
+const shownWeeks = (history) => history.filter((s) => !SKIP_WEEKS.has(s.date));
 
 /**
  * Everything that explains a tier's "completed" share in one update: the counts, the change since
@@ -50,7 +54,7 @@ export function tierStats(tier, history) {
     // The status of the tier's projects now (only statuses that have projects)
     statuses: CATEGORIES.map((c) => ({ ...c, list: now.filter((d) => category(d) === c.key) })).filter((c) => c.list.length),
     // The completed share of every update so far, oldest first (the last 8 are shown)
-    weekly: history.map((s) => {
+    weekly: shownWeeks(history).map((s) => {
       const list = s.projects.filter((d) => d.tier === tier);
       const k = list.filter(isDone).length;
       return { snap: s, label: snapShort(s), done: k, pct: list.length ? round((k / list.length) * 100) : 0 };
@@ -64,16 +68,11 @@ export function tierStats(tier, history) {
  * since the last update and what the next completion brings.
  */
 export function TierWhy({ stats, snapLabel }) {
-  const { name, n, done, pct, exact, prevSnap, prevDone, prevPct, nextPct, goal, forGoal, avg, statuses, weekly } = stats;
-  const diff = prevDone === null ? null : done.length - prevDone;
+  const { n, done, statuses, weekly } = stats;
   const weeks = weekly.slice(-8);
   return (
     <div className="sb-why" role="tooltip">
-      <div className="sb-why__title">Why {pct}% completed?</div>
-      <p><b>{done.length}</b> of <b>{n}</b> {name} project{n === 1 ? ' is' : 's are'} completed.</p>
-      <div className="sb-why__math">{done.length} ÷ {n} = {exact.toFixed(1)}% → <b>{pct}%</b></div>
-
-      <div className="sb-why__sub">Project status</div>
+      <div className="sb-why__sub sb-why__sub--first">Project status</div>
       <div className="sb-why__stack" aria-hidden="true">
         {statuses.map((c) => <i key={c.key} style={{ flexGrow: c.list.length, background: c.color }} />)}
       </div>
@@ -103,17 +102,6 @@ export function TierWhy({ stats, snapLabel }) {
           </div>
         </>
       )}
-      {diff !== null && (
-        <p className={`sb-why__delta${diff > 0 ? ' is-up' : ''}`}>
-          {diff > 0 ? `▲ +${diff} completed since ${snapLabel(prevSnap)} (was ${prevPct}%)`
-            : diff < 0 ? `▼ ${diff} since ${snapLabel(prevSnap)} (was ${prevPct}%)`
-              : `No new completions since ${snapLabel(prevSnap)}`}
-        </p>
-      )}
-      {nextPct !== null && (
-        <p>Next: <b>1 more</b> completion → <b>{nextPct}%</b>{forGoal > 1 ? <> · <b>{forGoal} more</b> to reach {goal}%</> : null}</p>
-      )}
-      <p>Average progress of the tier: <b>{avg}%</b> <small>(completed = 100%, others as reported)</small></p>
       <div className="sb-why__hint">Click for the full progress story</div>
     </div>
   );
@@ -133,7 +121,7 @@ export function TierInsight({ tier, history, onClose, onOpen, snapLabel }) {
   }, [tier]);
 
   const stats = tier ? tierStats(tier, history) : null;
-  const points = tier ? history.map((s) => {
+  const points = tier ? shownWeeks(history).map((s) => {
     const list = s.projects.filter((d) => d.tier === tier);
     return {
       snap: s,
