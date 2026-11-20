@@ -75,8 +75,10 @@ export default function WatchChart({ items, total, onOpen }) {
       axisBorder: { show: false },
       axisTicks: { show: false },
     },
-    yaxis: { labels: { style: { colors: '#1f1a24', fontSize: '13.5px', fontWeight: 600 }, maxWidth: 220 } },
-    grid: { borderColor: '#ece7f1', strokeDashArray: 3, xaxis: { lines: { show: true } }, yaxis: { lines: { show: false } }, padding: { right: 40 } },
+    // ApexCharts measures the labels slightly narrower than the bold text draws, so the longest one
+    // ("Past the completion date") was cut at the left: reserve the width and add a little margin
+    yaxis: { labels: { style: { colors: '#1f1a24', fontSize: '13.5px', fontWeight: 600 }, minWidth: 190, maxWidth: 240 } },
+    grid: { borderColor: '#ece7f1', strokeDashArray: 3, xaxis: { lines: { show: true } }, yaxis: { lines: { show: false } }, padding: { left: 16, right: 40 } },
     legend: { show: false }, // the section shows its own legend, like the other sections
     tooltip: {
       custom: ({ dataPointIndex }) => {
