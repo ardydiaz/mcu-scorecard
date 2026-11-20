@@ -10,6 +10,7 @@ import WorkbookSelect from '../../components/forms/WorkbookSelect';
 import { CATEGORIES, category, expandSnapshots, snapshotDate, tiersOf, watchItems } from './scoreboardData';
 import WigBoard from './WigBoard';
 import { TierInsight } from './TierInsight';
+import { WigInsight } from './WigInsight';
 import WatchChart from './WatchChart';
 import { DetailDialog, StatusCards, StatusLegend, TierRing, TrendChart, WatchLegend, fmtLong, snapLabel } from './ScoreboardParts';
 
@@ -30,6 +31,7 @@ export default function Dashboard() {
   const { data, loading, error, reload } = useScoreboard({ workbook, sheet, department });
   const [detail, setDetail] = useState(null);
   const [insight, setInsight] = useState(null); // tier whose progress window is open
+  const [wigInsight, setWigInsight] = useState(null); // WIG whose progress window is open
 
   // Re-read the profile so role/department changes show without signing in again
   useEffect(() => { refreshUser(); }, [refreshUser]);
@@ -145,7 +147,7 @@ export default function Dashboard() {
                 </p>
                 <StatusLegend projects={projects.filter((d) => d.wig)} />
               </div>
-              <WigBoard projects={projects} asOfLabel={snap?.label} onOpen={setDetail} workbook={workbook} sheet={data.sheet} department={department} />
+              <WigBoard projects={projects} history={history} onInsight={setWigInsight} />
             </section>
           )}
 
@@ -204,6 +206,8 @@ export default function Dashboard() {
       )}
 
       <TierInsight tier={insight} history={history} snapLabel={snapLabel} onClose={() => setInsight(null)} onOpen={setDetail} />
+      <WigInsight wig={wigInsight} history={history} snapLabel={snapLabel} onClose={() => setWigInsight(null)}
+        onOpen={(x) => { setWigInsight(null); setDetail(x); }} />
       <DetailDialog detail={detail} onClose={() => setDetail(null)} />
     </div>
   );

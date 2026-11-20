@@ -12,13 +12,13 @@ const isDone = (d) => category(d) === 'completed';
 // A project's progress for the average: completed = 100%, otherwise its reported % (none yet = 0%)
 const progressOf = (d) => (isDone(d) ? 100 : Math.max(0, Math.min(100, d.pct || 0)));
 const round = (x) => Math.round(x);
-const snapShort = (s) => (s?.date
+export const snapShort = (s) => (s?.date
   ? new Date(`${s.date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
   : s?.label || '');
 // Updates left out of the week-by-week views (22 Aug: a note marked "Completed" that later updates
 // put back in progress, so its completed share isn't comparable)
 const SKIP_WEEKS = new Set(['2026-08-22']);
-const shownWeeks = (history) => history.filter((s) => !SKIP_WEEKS.has(s.date));
+export const shownWeeks = (history) => history.filter((s) => !SKIP_WEEKS.has(s.date));
 
 /**
  * Everything that explains a tier's "completed" share in one update: the counts, the change since

@@ -1,16 +1,19 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import Chart from 'react-apexcharts';
 import { CATEGORIES, category, shortName } from './scoreboardData';
+import { WigWhy, wigStats } from './WigInsight';
 
 /**
  * WIGs as gauges (ApexCharts "Gauge with Ticks"): one card per WIG, its arc filled to its
  * completion % in its status color (the dashboard's, as in the section legend), the % and status
  * in the center and the WIG's name below. `wigs` come in the board's order (behind / at risk first).
- * Selecting a card opens the WIG's details.
+ * Hovering a card shows its progress status and its progress week by week (`history` = the
+ * updates up to "Status as of"); selecting it opens the WIG's progress window (onInsight).
  */
-export default function WigRadial({ wigs, onOpen }) {
+export default function WigRadial({ wigs, history = [], onInsight }) {
   const box = useRef(null);
   const [styles, setStyles] = useState(null);
+  const [hover, setHover] = useState(null);
   useLayoutEffect(() => { setStyles(getComputedStyle(box.current)); }, []);
   const resolve = (color) => {
     const m = /^var\((--[^)]+)\)$/.exec(color || '');
@@ -24,12 +27,13 @@ export default function WigRadial({ wigs, onOpen }) {
         const color = resolve(cat.color);
         const pct = Math.round(Math.min(100, Math.max(0, d.pct || 0)));
         const name = shortName(d.name);
-        const open = () => onOpen({ title: name, sub: `WIG · ${cat.label} · ${pct}% complete`, list: [d] });
+        const key = d.row ?? i;
         // ApexCharts "Gauge with Ticks": 0–100 scale with ticks around a 270° arc, in the status color
         const options = {
           chart: { type: 'gauge', fontFamily: 'Roboto, "Segoe UI", system-ui, sans-serif' },
           colors: [color],
           labels: [cat.label],
+          tooltip: { enabled: false },
           plotOptions: {
             radialBar: {
               startAngle: -135,
@@ -50,12 +54,20 @@ export default function WigRadial({ wigs, onOpen }) {
           },
           states: { hover: { filter: { type: 'none' } }, active: { filter: { type: 'none' } } },
         };
+        const show = hover === key;
         return (
-          <button key={d.row ?? i} type="button" className="sb-wigradial__card" style={{ '--c': cat.color }} onClick={open} title={name}>
-            <Chart type="gauge" series={[pct]} options={options} height={260} />
-            <span className="sb-wigradial__name">{name}</span>
-            <small>Class {d.tier} · {d.lead || '—'}</small>
-          </button>
+          <div key={key} className={`sb-wigradial__item${show ? ' is-hover' : ''}`}
+            onMouseEnter={() => setHover(key)} onMouseLeave={() => setHover(null)}>
+            <button type="button" className="sb-wigradial__card" style={{ '--c': cat.color }}
+              aria-label={`${name}: ${pct}% ${cat.label}, open the progress`}
+              onFocus={() => setHover(key)} onBlur={() => setHover(null)}
+              onClick={() => { setHover(null); onInsight(d); }}>
+              <Chart type="gauge" series={[pct]} options={options} height={260} />
+              <span className="sb-wigradial__name">{name}</span>
+              <small>Class {d.tier} · {d.lead || '—'}</small>
+            </button>
+            {show && <WigWhy stats={wigStats(d, history)} />}
+          </div>
         );
       })}
     </div>
