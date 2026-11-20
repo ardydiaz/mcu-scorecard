@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CATEGORIES, STAGE_LABEL, TREND_GROUPS, category, fmtWhen, shares, shortName, stageColor, tierOrder, trendSeries,
 } from './scoreboardData';
+import { TierWhy, tierStats } from './TierInsight';
 
 export const fmtLong = (d) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 export const snapLabel = (s) => (s.date ? fmtLong(new Date(`${s.date}T00:00:00`)) : s.label);
@@ -152,8 +153,15 @@ export function StatusCards({ projects, onOpen }) {
 const R = 76;
 const CIRC = 2 * Math.PI * R;
 
-export function TierRing({ tier, projects, total, onOpen }) {
+/**
+ * One tier as a ring of its statuses. The centre shows the completed share; hovering it (or the
+ * Completed segment) shows why ("3 of 32 = 9%", change since the last update, next milestone), and
+ * selecting it opens the tier's progress window (onInsight). Other segments open their projects.
+ */
+export function TierRing({ tier, projects, total, onOpen, history = [], onInsight }) {
   const [hover, setHover] = useState(null);
+  const [why, setWhy] = useState(false);
+  const stats = useMemo(() => (history.length ? tierStats(tier, history) : null), [tier, history]);
   const list = projects.filter((d) => d.tier === tier);
   const n = list.length;
   const segs = CATEGORIES.map((c) => ({ ...c, list: list.filter((d) => category(d) === c.key) })).filter((s) => s.list.length);
@@ -170,7 +178,12 @@ export function TierRing({ tier, projects, total, onOpen }) {
     return arc;
   });
   const active = arcs.find((a) => a.key === hover);
-  const open = (s) => onOpen({ title: `${name}: ${s.label.toLowerCase()}`, sub: `${s.list.length} of ${n} ${name} projects`, list: s.list });
+  const canExplain = Boolean(stats && onInsight);
+  // The Completed segment explains the share too; the other segments open their projects
+  const open = (s) => (s.key === 'completed' && canExplain
+    ? onInsight(tier)
+    : onOpen({ title: `${name}: ${s.label.toLowerCase()}`, sub: `${s.list.length} of ${n} ${name} projects`, list: s.list }));
+  const showWhy = canExplain && (why || hover === 'completed');
 
   return (
     <div className="sb-tiercard">
@@ -184,7 +197,8 @@ export function TierRing({ tier, projects, total, onOpen }) {
               onMouseEnter={() => setHover(a.key)} onMouseLeave={() => setHover(null)}
               onFocus={() => setHover(a.key)} onBlur={() => setHover(null)}
               onClick={() => open(a)} onKeyDown={activate(() => open(a))}>
-              <title>{`${a.label}: ${a.list.length}`}</title>
+              {/* The Completed segment has the "Why" card instead of the browser's tooltip */}
+              {!(a.key === 'completed' && canExplain) && <title>{`${a.label}: ${a.list.length}`}</title>}
             </circle>
           ))}
         </svg>
@@ -195,6 +209,12 @@ export function TierRing({ tier, projects, total, onOpen }) {
             <><b>{n ? Math.round((completed / n) * 100) : 0}%</b><span>completed</span><em>{completed} of {n}</em></>
           )}
         </div>
+        {canExplain && (
+          <button type="button" className="sb-ring__hit" aria-label={`${name}: why ${stats.pct}% completed, open the progress`}
+            onMouseEnter={() => setWhy(true)} onMouseLeave={() => setWhy(false)} onFocus={() => setWhy(true)} onBlur={() => setWhy(false)}
+            onClick={() => { setWhy(false); onInsight(tier); }} />
+        )}
+        {showWhy && <TierWhy stats={stats} snapLabel={snapLabel} />}
       </div>
       <button type="button" className="sb-tiername" onClick={() => onOpen({ title: `${name} projects`, sub: `${n} of ${total} projects`, list })}>
         <span>{name}</span><small>{n} project{n === 1 ? '' : 's'}</small>

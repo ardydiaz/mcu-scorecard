@@ -9,6 +9,7 @@ import SheetSelect from '../../components/forms/SheetSelect';
 import WorkbookSelect from '../../components/forms/WorkbookSelect';
 import { CATEGORIES, category, expandSnapshots, snapshotDate, tiersOf, watchItems } from './scoreboardData';
 import WigBoard from './WigBoard';
+import { TierInsight } from './TierInsight';
 import WatchChart from './WatchChart';
 import { DetailDialog, StatusCards, StatusLegend, TierRing, TrendChart, WatchLegend, fmtLong, snapLabel } from './ScoreboardParts';
 
@@ -28,6 +29,7 @@ export default function Dashboard() {
   const sheets = useScorecardSheets({ workbook });
   const { data, loading, error, reload } = useScoreboard({ workbook, sheet, department });
   const [detail, setDetail] = useState(null);
+  const [insight, setInsight] = useState(null); // tier whose progress window is open
 
   // Re-read the profile so role/department changes show without signing in again
   useEffect(() => { refreshUser(); }, [refreshUser]);
@@ -46,6 +48,8 @@ export default function Dashboard() {
   const snap = snapshots.find((s) => s.label === asOfParam) || latest;
   const projects = snap?.projects || [];
   const tiers = tiersOf(projects);
+  // The updates up to the one being viewed, for each tier's progress story
+  const history = useMemo(() => (snap ? snapshots.slice(0, snapshots.indexOf(snap) + 1) : []), [snapshots, snap]);
   const isOld = Boolean(snap && latest && snap !== latest);
   const asOf = snapshotDate(snap);
   const watch = useMemo(() => (snap ? watchItems(snap.projects, snapshotDate(snap)) : []), [snap]);
@@ -158,7 +162,8 @@ export default function Dashboard() {
             <div className="sb-head"><span>02</span><h2>Status by Tier</h2></div>
             <p className="sb-sub">
               Projects in each tier, colored by reported status. Each ring is one tier. The centre shows that tier’s completed projects as a share
-              of the tier, and hovering a segment shows its share of the tier. Select a ring segment, a status count or a tier name to see its projects.
+              of the tier: hover it to see why, and select it to see how the tier got there and what will move it next. Select a ring
+              segment, a status count or a tier name to see its projects.
             </p>
             <div className="sb-charttop">
               <div className="sb-charttitle">Projects per tier</div>
@@ -169,7 +174,10 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="sb-tiers">
-              {tiers.map((t) => <TierRing key={t} tier={t} projects={projects} total={projects.length} onOpen={setDetail} />)}
+              {tiers.map((t) => (
+                <TierRing key={t} tier={t} projects={projects} total={projects.length} onOpen={setDetail}
+                  history={history} onInsight={setInsight} />
+              ))}
             </div>
           </section>
 
@@ -195,6 +203,7 @@ export default function Dashboard() {
         </>
       )}
 
+      <TierInsight tier={insight} history={history} snapLabel={snapLabel} onClose={() => setInsight(null)} onOpen={setDetail} />
       <DetailDialog detail={detail} onClose={() => setDetail(null)} />
     </div>
   );
